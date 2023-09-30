@@ -20,13 +20,39 @@ pub struct Spawn {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Shark {
+    pub pos: Pos,
+    pub target_pos: vec2<f32>,
+}
+
+struct InterpolatedShark {
+    pos: InterpolatedPos,
+}
+
+impl InterpolatedShark {
+    pub fn new(shark: Shark) -> Self {
+        Self {
+            pos: InterpolatedPos::new(shark.pos),
+        }
+    }
+    pub fn server_update(&mut self, upd: Shark) {
+        self.pos.server_update(upd.pos);
+    }
+    fn update(&mut self, delta_time: f32) {
+        self.pos.update(delta_time);
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ServerMessage {
     UpdateRaft(HashSet<vec2<i32>>),
     YouSpawn(Spawn),
+    YouDrown,
     Pog,
     NewPlayer { id: Id, pos: Pos },
     UpdatePos { id: Id, pos: Pos },
     PlayerLeft { id: Id },
+    UpdateSharks(HashMap<i64, Shark>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -116,25 +142,25 @@ struct OtherPlayer {
 pub struct Game {
     con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ctx: Ctx,
-    me: Pos,
+    me: Option<Pos>,
     camera: Camera,
     framebuffer_size: vec2<f32>,
     time: f32,
     wave_dir: vec2<f32>,
     others: HashMap<Id, OtherPlayer>,
     raft: HashSet<vec2<i32>>,
+    sharks: HashMap<Id, InterpolatedShark>,
 }
 
 impl Game {
     pub fn new(
         ctx: &Ctx,
         con: geng::net::client::Connection<ServerMessage, ClientMessage>,
-        spawn: Spawn,
     ) -> Self {
         Self {
             con,
             ctx: ctx.clone(),
-            me: spawn.pos,
+            me: None,
             camera: Camera {
                 pos: vec3::ZERO,
                 fov: Angle::from_degrees(ctx.assets.config.camera.fov),
@@ -147,6 +173,7 @@ impl Game {
             wave_dir: ctx.assets.config.wave.dir.normalize_or_zero(),
             others: default(),
             raft: default(),
+            sharks: default(),
         }
     }
     pub async fn run(mut self) {
@@ -174,8 +201,11 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::YouDrown => {
+                self.me = None;
+            }
             ServerMessage::YouSpawn(spawn) => {
-                self.me = spawn.pos;
+                self.me = Some(spawn.pos);
             }
             ServerMessage::NewPlayer { id, pos } => {
                 self.others.insert(
@@ -193,10 +223,22 @@ impl Game {
             }
             ServerMessage::Pog => {
                 self.con.send(ClientMessage::Pig);
-                self.con.send(ClientMessage::UpdatePos(self.me));
+                if let Some(me) = &self.me {
+                    self.con.send(ClientMessage::UpdatePos(me.clone()));
+                }
             }
             ServerMessage::UpdateRaft(raft) => {
                 self.raft = raft;
+            }
+            ServerMessage::UpdateSharks(sharks) => {
+                self.sharks.retain(|id, _| sharks.contains_key(id));
+                for (id, shark) in sharks {
+                    if let Some(cur) = self.sharks.get_mut(&id) {
+                        cur.server_update(shark);
+                    } else {
+                        self.sharks.insert(id, InterpolatedShark::new(shark));
+                    }
+                }
             }
         }
     }
@@ -205,60 +247,65 @@ impl Game {
         let delta_time = delta_time.as_secs_f64() as f32;
         self.time += delta_time;
 
-        let mut mov = vec2::<f32>::ZERO;
-        if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowLeft)
-            || self.ctx.geng.window().is_key_pressed(geng::Key::A)
-        {
-            mov.x -= 1.0;
-        }
-        if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowRight)
-            || self.ctx.geng.window().is_key_pressed(geng::Key::D)
-        {
-            mov.x += 1.0;
-        }
-        if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowUp)
-            || self.ctx.geng.window().is_key_pressed(geng::Key::W)
-        {
-            mov.y += 1.0;
-        }
-        if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowDown)
-            || self.ctx.geng.window().is_key_pressed(geng::Key::S)
-        {
-            mov.y -= 1.0;
-        }
-        // relative to crab
-        let mov = mov
-            .clamp_len(..=1.0)
-            .rotate(self.camera.rot)
-            .rotate(-self.me.rot);
-        self.me.vel = (mov
-            * vec2(
-                self.ctx.assets.config.forward_speed,
-                self.ctx.assets.config.side_speed,
-            ))
-        .rotate(self.me.rot)
-        .extend(0.0);
-        self.me.pos += self.me.vel * delta_time;
-
-        if let Some(pos) = self.ctx.geng.window().cursor_position() {
-            let ray = self
-                .camera
-                .pixel_ray(self.framebuffer_size, pos.map(|x| x as f32));
-            if ray.dir.z < -1e-5 {
-                let t = -ray.from.z / ray.dir.z;
-                let ground_pos = ray.from + ray.dir * t;
-                let delta_pos = ground_pos - self.me.pos;
-                self.me.rot = delta_pos.xy().arg();
+        if let Some(me) = &mut self.me {
+            let mut mov = vec2::<f32>::ZERO;
+            if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowLeft)
+                || self.ctx.geng.window().is_key_pressed(geng::Key::A)
+            {
+                mov.x -= 1.0;
             }
-        }
-
-        let delta = self.me.pos.xy() - self.camera.pos.xy();
-        self.camera.pos += (delta * self.ctx.assets.config.camera.speed * delta_time)
-            .clamp_len(..=delta.len())
+            if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowRight)
+                || self.ctx.geng.window().is_key_pressed(geng::Key::D)
+            {
+                mov.x += 1.0;
+            }
+            if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowUp)
+                || self.ctx.geng.window().is_key_pressed(geng::Key::W)
+            {
+                mov.y += 1.0;
+            }
+            if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowDown)
+                || self.ctx.geng.window().is_key_pressed(geng::Key::S)
+            {
+                mov.y -= 1.0;
+            }
+            // relative to crab
+            let mov = mov
+                .clamp_len(..=1.0)
+                .rotate(self.camera.rot)
+                .rotate(-me.rot);
+            me.vel = (mov
+                * vec2(
+                    self.ctx.assets.config.forward_speed,
+                    self.ctx.assets.config.side_speed,
+                ))
+            .rotate(me.rot)
             .extend(0.0);
+            me.pos += me.vel * delta_time;
+
+            if let Some(pos) = self.ctx.geng.window().cursor_position() {
+                let ray = self
+                    .camera
+                    .pixel_ray(self.framebuffer_size, pos.map(|x| x as f32));
+                if ray.dir.z < -1e-5 {
+                    let t = -ray.from.z / ray.dir.z;
+                    let ground_pos = ray.from + ray.dir * t;
+                    let delta_pos = ground_pos - me.pos;
+                    me.rot = delta_pos.xy().arg();
+                }
+            }
+
+            let delta = me.pos.xy() - self.camera.pos.xy();
+            self.camera.pos += (delta * self.ctx.assets.config.camera.speed * delta_time)
+                .clamp_len(..=delta.len())
+                .extend(0.0);
+        }
 
         for other in self.others.values_mut() {
             other.pos.update(delta_time);
+        }
+        for shark in self.sharks.values_mut() {
+            shark.update(delta_time);
         }
     }
 
@@ -296,19 +343,21 @@ impl Game {
             None,
         );
 
-        self.draw_crab(framebuffer, self.me);
+        if let Some(me) = &self.me {
+            self.draw_crab(framebuffer, me.clone());
+        }
         for other in self.others.values() {
             self.draw_crab(framebuffer, other.pos.get());
         }
 
-        let angle = Angle::from_degrees(self.time * 10.0);
-        self.ctx.model_draw.draw(
-            framebuffer,
-            &self.camera,
-            &self.ctx.assets.shark,
-            mat4::translate(vec2(8.0, 0.0).rotate(angle).extend(-2.0))
-                * mat4::rotate_z(angle + Angle::from_degrees(270.0)),
-        );
+        for shark in self.sharks.values() {
+            self.ctx.model_draw.draw(
+                framebuffer,
+                &self.camera,
+                &self.ctx.assets.shark,
+                shark.pos.get().transform() * mat4::rotate_z(Angle::from_degrees(180.0)),
+            );
+        }
 
         for &tile in &self.raft {
             self.ctx.model_draw.draw(
@@ -436,13 +485,10 @@ fn main() {
             },
             |geng| async move {
                 let ctx = Ctx::new(&geng).await;
-                let mut con = geng::net::client::connect(cli.connect.as_deref().unwrap())
+                let con = geng::net::client::connect(cli.connect.as_deref().unwrap())
                     .await
                     .unwrap();
-                let ServerMessage::YouSpawn(spawn) = con.next().await.unwrap().unwrap() else {
-                    panic!()
-                };
-                Game::new(&ctx, con, spawn).run().await;
+                Game::new(&ctx, con).run().await;
             },
         );
 

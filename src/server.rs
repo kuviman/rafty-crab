@@ -1,23 +1,31 @@
 use super::*;
 
-#[derive(Deserialize)]
-pub struct Config {
-    raft_size: i32,
-}
-
 struct State {
-    config: Config,
-    last_id: Id,
+    should_exit: bool,
+    config: assets::Config,
+    id_gen: IdGen,
     player_pos: HashMap<Id, Pos>,
     raft: HashSet<vec2<i32>>,
     senders: HashMap<Id, Box<dyn geng::net::Sender<ServerMessage>>>,
+    sharks: HashMap<Id, Shark>,
+}
+
+struct IdGen {
+    last_id: Id,
+}
+
+impl IdGen {
+    fn gen(&mut self) -> Id {
+        self.last_id += 1;
+        self.last_id
+    }
 }
 
 impl State {
-    fn new(config: Config) -> Self {
+    fn new(config: assets::Config) -> Self {
+        let mut id_gen = IdGen { last_id: 0 };
         Self {
             player_pos: default(),
-            last_id: 0,
             senders: default(),
             raft: Aabb2::ZERO
                 .extend_uniform(config.raft_size)
@@ -25,12 +33,30 @@ impl State {
                 .points()
                 .filter(|tile| tile.map(|x| x as f32).len() <= config.raft_size as f32 + 0.5)
                 .collect(),
+            should_exit: false,
+            sharks: (0..config.shark.count)
+                .map(|_| {
+                    let pos = thread_rng()
+                        .gen_circle(vec2::ZERO, config.raft_size as f32 * config.tile_size);
+                    (
+                        id_gen.gen(),
+                        Shark {
+                            pos: Pos {
+                                pos: pos.extend(config.shark.depth),
+                                rot: thread_rng().gen(),
+                                vel: vec3::ZERO,
+                            },
+                            target_pos: pos,
+                        },
+                    )
+                })
+                .collect(),
+            id_gen,
             config,
         }
     }
     pub fn new_player(&mut self, mut sender: Box<dyn geng::net::Sender<ServerMessage>>) -> Id {
-        self.last_id += 1;
-        let id = self.last_id;
+        let id = self.id_gen.gen();
         let pos = Pos {
             pos: vec3(
                 thread_rng().gen_range(-1.0..=1.0),
@@ -52,6 +78,7 @@ impl State {
             }
         }
         sender.send(ServerMessage::UpdateRaft(self.raft.clone()));
+        sender.send(ServerMessage::UpdateSharks(self.sharks.clone()));
         self.senders.insert(id, sender);
         id
     }
@@ -63,18 +90,48 @@ impl State {
         }
     }
     pub fn handle(&mut self, client: Id, message: ClientMessage) {
+        let sender = self.senders.get_mut(&client).unwrap();
         match message {
             ClientMessage::UpdatePos(pos) => {
                 self.player_pos.insert(client, pos);
+
+                if Aabb2::ZERO
+                    .extend_uniform(1)
+                    .extend_positive(vec2::splat(1))
+                    .points()
+                    .all(|p| {
+                        let tile = (pos.pos.xy() + p.map(|x| x as f32))
+                            .map(|x| (x / self.config.tile_size).round() as i32);
+                        !self.raft.contains(&tile)
+                    })
+                {
+                    sender.send(ServerMessage::YouDrown);
+                }
             }
             ClientMessage::Pig => {
-                let sender = self.senders.get_mut(&client).unwrap();
                 sender.send(ServerMessage::Pog);
                 for (&id, &pos) in &self.player_pos {
                     if id != client {
                         sender.send(ServerMessage::UpdatePos { id, pos });
                     }
                 }
+                sender.send(ServerMessage::UpdateSharks(self.sharks.clone()));
+            }
+        }
+    }
+    fn tick(&mut self, delta_time: f32) {
+        for shark in self.sharks.values_mut() {
+            let delta = shark.target_pos.extend(self.config.shark.depth) - shark.pos.pos;
+            shark.pos.pos += delta.clamp_len(..=delta_time * self.config.shark.speed);
+            if delta.len() < 1e-5 {
+                shark.target_pos = thread_rng().gen_circle(
+                    vec2::ZERO,
+                    self.config.raft_size as f32 * self.config.tile_size
+                        + self.config.shark.extra_move_radius,
+                );
+            } else {
+                shark.pos.vel = delta.normalize_or_zero() * self.config.shark.speed;
+                shark.pos.rot = delta.xy().arg();
             }
         }
     }
@@ -85,14 +142,34 @@ pub struct App {
 }
 
 impl App {
+    const TPS: f32 = 10.0;
     pub fn new() -> Self {
         let config = futures::executor::block_on(file::load_detect(
-            run_dir().join("assets").join("server_config.toml"),
+            run_dir().join("assets").join("config.toml"),
         ))
         .unwrap();
-        Self {
-            state: Arc::new(Mutex::new(State::new(config))),
-        }
+        let state = Arc::new(Mutex::new(State::new(config)));
+        std::thread::spawn({
+            let state = state.clone();
+            move || loop {
+                let delta_time = 1.0 / Self::TPS;
+                {
+                    let mut state = state.lock().unwrap();
+                    if state.should_exit {
+                        break;
+                    }
+                    state.tick(delta_time);
+                }
+                std::thread::sleep(std::time::Duration::from_secs_f32(delta_time));
+            }
+        });
+        Self { state }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.state.lock().unwrap().should_exit = true;
     }
 }
 

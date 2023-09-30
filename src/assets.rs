@@ -31,6 +31,14 @@ pub struct WaterConfig {
     pub z: f32,
 }
 
+#[derive(Deserialize)]
+pub struct SharkConfig {
+    pub count: usize,
+    pub depth: f32,
+    pub speed: f32,
+    pub extra_move_radius: f32,
+}
+
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
@@ -42,6 +50,9 @@ pub struct Config {
     pub camera: CameraConfig,
     pub crab_animation: CrabAnimation,
     pub wave: WaveConfig,
+
+    pub raft_size: i32,
+    pub shark: SharkConfig,
 }
 
 #[derive(geng::asset::Load)]
