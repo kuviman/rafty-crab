@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 geng = { git = "https://github.com/geng-engine/geng" }
 pog-paint = { git = "https://github.com/kuviman/PogPaint" }
+serde = "1"

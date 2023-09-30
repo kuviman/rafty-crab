@@ -1,0 +1,9 @@
+scaling = 16
+forward_speed = 5
+side_speed = 10
+
+[camera]
+distance = 40
+rot = 30
+attack = 60
+fov = 60

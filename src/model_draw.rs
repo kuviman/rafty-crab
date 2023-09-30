@@ -47,6 +47,9 @@ impl ModelDraw {
         model: &pog_paint::Model,
         transform: mat4<f32>,
     ) {
+        let transform = transform
+            * mat4::scale_uniform(1.0 / self.assets.config.scaling)
+            * mat4::rotate_z(Angle::from_degrees(-90.0));
         let framebuffer_size = framebuffer.size().map(|x| x as f32);
         for plane in &model.planes {
             if let Some(texture) = &plane.texture.texture {
