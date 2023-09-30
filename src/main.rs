@@ -58,6 +58,7 @@ pub enum ServerMessage {
     PlayerDrown(i64),
     Destroy(Id, vec2<i32>),
     AboutToDestroy(i64, vec2<i32>),
+    JustRestarted,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -229,6 +230,9 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::JustRestarted => {
+                self.shark_attacks.clear();
+            }
             ServerMessage::Destroy(shark, tile) => {
                 self.shark_attacks.remove(&shark);
                 self.raft.remove(&tile);

@@ -43,6 +43,7 @@ pub struct SharkConfig {
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
+    pub restart_timer: f32,
     pub water: WaterConfig,
     pub tile_size: f32,
     pub scaling: f32,

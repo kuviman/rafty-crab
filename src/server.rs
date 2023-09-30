@@ -8,7 +8,7 @@ struct State {
     raft: HashSet<vec2<i32>>,
     senders: HashMap<Id, Box<dyn geng::net::Sender<ServerMessage>>>,
     sharks: HashMap<Id, Shark>,
-    restart_timer
+    restart_timer: Option<f32>,
 }
 
 struct IdGen {
@@ -24,6 +24,10 @@ impl IdGen {
 
 impl State {
     fn restart(&mut self) {
+        for shark in self.sharks.values_mut() {
+            shark.destroy = None;
+            shark.destroy_timer = None;
+        }
         self.raft = Aabb2::ZERO
             .extend_uniform(self.config.raft_size)
             .extend_positive(vec2::splat(1))
@@ -44,6 +48,7 @@ impl State {
             };
             self.player_pos.insert(client, pos);
             sender.send(ServerMessage::YouSpawn(Spawn { pos }));
+            sender.send(ServerMessage::JustRestarted);
         }
 
         for (&id, &pos) in &self.player_pos {
@@ -57,6 +62,7 @@ impl State {
     fn new(config: assets::Config) -> Self {
         let mut id_gen = IdGen { last_id: 0 };
         Self {
+            restart_timer: None,
             player_pos: default(),
             senders: default(),
             raft: default(),
@@ -145,6 +151,20 @@ impl State {
         }
     }
     fn tick(&mut self, delta_time: f32) {
+        if self.senders.is_empty() {
+            return;
+        }
+        if let Some(timer) = &mut self.restart_timer {
+            *timer -= delta_time;
+            if *timer < 0.0 {
+                self.restart_timer = None;
+                self.restart();
+            }
+        } else {
+            if self.player_pos.is_empty() {
+                self.restart_timer = Some(self.config.restart_timer);
+            }
+        }
         for (&shark_id, shark) in &mut self.sharks {
             if let Some(timer) = &mut shark.destroy_timer {
                 *timer += delta_time;

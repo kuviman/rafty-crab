@@ -3,6 +3,7 @@ forward_speed = 4
 side_speed = 7
 tile_size = 4
 raft_size = 2
+restart_timer = 5
 
 [shark]
 count = 3
