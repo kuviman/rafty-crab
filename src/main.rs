@@ -21,7 +21,9 @@ pub struct Spawn {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Shark {
+    pub destroy_timer: Option<f32>,
     pub pos: Pos,
+    pub destroy: Option<vec2<i32>>,
     pub target_pos: vec2<f32>,
 }
 
@@ -49,11 +51,13 @@ pub enum ServerMessage {
     YouSpawn(Spawn),
     YouDrown,
     Pog,
-    NewPlayer { id: Id, pos: Pos },
+    PlayerSpawn { id: Id, pos: Pos },
     UpdatePos { id: Id, pos: Pos },
     PlayerLeft { id: Id },
     UpdateSharks(HashMap<i64, Shark>),
     PlayerDrown(i64),
+    Destroy(Id, vec2<i32>),
+    AboutToDestroy(i64, vec2<i32>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -141,14 +145,16 @@ struct OtherPlayer {
 }
 
 struct Vfx {
+    model: Rc<pog_paint::Model>,
     t: f32,
     max_t: f32,
     pos: vec3<f32>,
     rot: Angle<f32>,
 }
 impl Vfx {
-    fn new(pos: vec3<f32>) -> Vfx {
+    fn new(model: &Rc<pog_paint::Model>, pos: vec3<f32>) -> Vfx {
         Self {
+            model: model.clone(),
             t: 0.0,
             max_t: 0.3,
             pos,
@@ -158,6 +164,7 @@ impl Vfx {
 }
 
 pub struct Game {
+    shark_attacks: HashMap<Id, vec2<i32>>,
     con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ctx: Ctx,
     me: Option<Pos>,
@@ -168,7 +175,7 @@ pub struct Game {
     others: HashMap<Id, OtherPlayer>,
     raft: HashSet<vec2<i32>>,
     sharks: HashMap<Id, InterpolatedShark>,
-    splashes: Vec<Vfx>,
+    vfx: Vec<Vfx>,
 }
 
 impl Game {
@@ -177,6 +184,7 @@ impl Game {
         con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ) -> Self {
         Self {
+            shark_attacks: default(),
             con,
             ctx: ctx.clone(),
             me: None,
@@ -193,7 +201,7 @@ impl Game {
             others: default(),
             raft: default(),
             sharks: default(),
-            splashes: default(),
+            vfx: default(),
         }
     }
     pub async fn run(mut self) {
@@ -221,23 +229,40 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::Destroy(shark, tile) => {
+                self.shark_attacks.remove(&shark);
+                self.raft.remove(&tile);
+                self.ctx.assets.sfx.destroy.play();
+                self.vfx.push(Vfx::new(
+                    &self.ctx.assets.destroy,
+                    tile.map(|x| x as f32 * self.ctx.assets.config.tile_size)
+                        .extend(0.0),
+                ));
+            }
+            ServerMessage::AboutToDestroy(shark, tile) => {
+                self.shark_attacks.insert(shark, tile);
+                self.ctx.assets.sfx.eating.play();
+            }
             ServerMessage::PlayerDrown(id) => {
                 if let Some(other) = self.others.remove(&id) {
-                    self.splashes
-                        .push(Vfx::new(other.pos.get().pos.xy().extend(0.0)));
-                    self.ctx.assets.splash_sfx.play();
+                    self.vfx.push(Vfx::new(
+                        &self.ctx.assets.splash,
+                        other.pos.get().pos.xy().extend(0.0),
+                    ));
+                    self.ctx.assets.sfx.splash.play();
                 }
             }
             ServerMessage::YouDrown => {
                 if let Some(me) = self.me.take() {
-                    self.splashes.push(Vfx::new(me.pos.xy().extend(0.0)));
-                    self.ctx.assets.splash_sfx.play();
+                    self.vfx
+                        .push(Vfx::new(&self.ctx.assets.splash, me.pos.xy().extend(0.0)));
+                    self.ctx.assets.sfx.splash.play();
                 }
             }
             ServerMessage::YouSpawn(spawn) => {
                 self.me = Some(spawn.pos);
             }
-            ServerMessage::NewPlayer { id, pos } => {
+            ServerMessage::PlayerSpawn { id, pos } => {
                 self.others.insert(
                     id,
                     OtherPlayer {
@@ -338,10 +363,10 @@ impl Game {
             shark.update(delta_time);
         }
 
-        for vfx in &mut self.splashes {
+        for vfx in &mut self.vfx {
             vfx.t += delta_time;
         }
-        self.splashes.retain(|vfx| vfx.t < vfx.max_t);
+        self.vfx.retain(|vfx| vfx.t < vfx.max_t);
     }
 
     fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos) {
@@ -385,13 +410,29 @@ impl Game {
             self.draw_crab(framebuffer, other.pos.get());
         }
 
-        for shark in self.sharks.values() {
-            self.ctx.model_draw.draw(
-                framebuffer,
-                &self.camera,
-                &self.ctx.assets.shark,
-                shark.pos.get().transform() * mat4::rotate_z(Angle::from_degrees(180.0)),
-            );
+        for (id, shark) in &self.sharks {
+            if let Some(tile) = self.shark_attacks.get(&id) {
+                let pos = shark.pos.get().pos;
+                self.ctx.model_draw.draw(
+                    framebuffer,
+                    &self.camera,
+                    &self.ctx.assets.shark,
+                    mat4::translate(pos + vec3(0.0, 0.0, 2.5))
+                        * mat4::rotate_z(
+                            (tile.map(|x| x as f32 * self.ctx.assets.config.tile_size) - pos.xy())
+                                .arg(),
+                        )
+                        * mat4::rotate_y(Angle::from_degrees(-50.0))
+                        * mat4::rotate_z(Angle::from_degrees(180.0)),
+                );
+            } else {
+                self.ctx.model_draw.draw(
+                    framebuffer,
+                    &self.camera,
+                    &self.ctx.assets.shark,
+                    shark.pos.get().transform() * mat4::rotate_z(Angle::from_degrees(180.0)),
+                );
+            }
         }
 
         for &tile in &self.raft {
@@ -406,11 +447,11 @@ impl Game {
         }
 
         // vfx
-        for vfx in &self.splashes {
+        for vfx in &self.vfx {
             self.ctx.model_draw.draw(
                 framebuffer,
                 &self.camera,
-                &self.ctx.assets.splash,
+                &vfx.model,
                 mat4::translate(vfx.pos)
                     * mat4::rotate_z(vfx.rot)
                     * mat4::scale_uniform(1.0 + (vfx.t / vfx.max_t) * 0.5),

@@ -2,13 +2,14 @@ scaling = 16
 forward_speed = 4
 side_speed = 7
 tile_size = 4
-raft_size = 4
+raft_size = 2
 
 [shark]
 count = 3
 depth = -3
 speed = 5
 extra_move_radius = 10
+attack_prob = 0.5
 
 [water]
 color = "#608ab899"

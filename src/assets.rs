@@ -33,6 +33,7 @@ pub struct WaterConfig {
 
 #[derive(Deserialize)]
 pub struct SharkConfig {
+    pub attack_prob: f64,
     pub count: usize,
     pub depth: f32,
     pub speed: f32,
@@ -68,12 +69,20 @@ pub struct Crab {
 }
 
 #[derive(geng::asset::Load)]
+pub struct Sfx {
+    pub eating: geng::Sound,
+    pub destroy: geng::Sound,
+    pub splash: geng::Sound,
+}
+
+#[derive(geng::asset::Load)]
 pub struct Assets {
+    pub sfx: Sfx,
     pub shaders: Shaders,
     pub config: Config,
     pub crab: Crab,
     pub shark: pog_paint::Model,
-    pub splash: pog_paint::Model,
-    pub splash_sfx: geng::Sound,
+    pub splash: Rc<pog_paint::Model>,
+    pub destroy: Rc<pog_paint::Model>,
     pub raft_tile: pog_paint::Model,
 }

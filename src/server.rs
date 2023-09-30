@@ -8,6 +8,7 @@ struct State {
     raft: HashSet<vec2<i32>>,
     senders: HashMap<Id, Box<dyn geng::net::Sender<ServerMessage>>>,
     sharks: HashMap<Id, Shark>,
+    restart_timer
 }
 
 struct IdGen {
@@ -22,17 +23,43 @@ impl IdGen {
 }
 
 impl State {
+    fn restart(&mut self) {
+        self.raft = Aabb2::ZERO
+            .extend_uniform(self.config.raft_size)
+            .extend_positive(vec2::splat(1))
+            .points()
+            .filter(|tile| tile.map(|x| x as f32).len() <= self.config.raft_size as f32 + 0.5)
+            .collect();
+        for (&client, sender) in &mut self.senders {
+            sender.send(ServerMessage::UpdateRaft(self.raft.clone()));
+
+            let pos = Pos {
+                pos: vec3(
+                    thread_rng().gen_range(-1.0..=1.0),
+                    thread_rng().gen_range(-1.0..=1.0),
+                    0.0,
+                ),
+                rot: Angle::from_degrees(thread_rng().gen_range(0.0..360.0)),
+                vel: vec3::ZERO,
+            };
+            self.player_pos.insert(client, pos);
+            sender.send(ServerMessage::YouSpawn(Spawn { pos }));
+        }
+
+        for (&id, &pos) in &self.player_pos {
+            for (&client, sender) in &mut self.senders {
+                if client != id {
+                    sender.send(ServerMessage::PlayerSpawn { id, pos });
+                }
+            }
+        }
+    }
     fn new(config: assets::Config) -> Self {
         let mut id_gen = IdGen { last_id: 0 };
         Self {
             player_pos: default(),
             senders: default(),
-            raft: Aabb2::ZERO
-                .extend_uniform(config.raft_size)
-                .extend_positive(vec2::splat(1))
-                .points()
-                .filter(|tile| tile.map(|x| x as f32).len() <= config.raft_size as f32 + 0.5)
-                .collect(),
+            raft: default(),
             should_exit: false,
             sharks: (0..config.shark.count)
                 .map(|_| {
@@ -41,6 +68,8 @@ impl State {
                     (
                         id_gen.gen(),
                         Shark {
+                            destroy: None,
+                            destroy_timer: None,
                             pos: Pos {
                                 pos: pos.extend(config.shark.depth),
                                 rot: thread_rng().gen(),
@@ -57,24 +86,10 @@ impl State {
     }
     pub fn new_player(&mut self, mut sender: Box<dyn geng::net::Sender<ServerMessage>>) -> Id {
         let id = self.id_gen.gen();
-        let pos = Pos {
-            pos: vec3(
-                thread_rng().gen_range(-1.0..=1.0),
-                thread_rng().gen_range(-1.0..=1.0),
-                0.0,
-            ),
-            rot: Angle::from_degrees(thread_rng().gen_range(0.0..360.0)),
-            vel: vec3::ZERO,
-        };
-        self.player_pos.insert(id, pos);
-        for sender in self.senders.values_mut() {
-            sender.send(ServerMessage::NewPlayer { id, pos });
-        }
-        sender.send(ServerMessage::YouSpawn(Spawn { pos }));
         sender.send(ServerMessage::Pog);
         for (&other_id, &pos) in &self.player_pos {
             if other_id != id {
-                sender.send(ServerMessage::NewPlayer { id: other_id, pos });
+                sender.send(ServerMessage::PlayerSpawn { id: other_id, pos });
             }
         }
         sender.send(ServerMessage::UpdateRaft(self.raft.clone()));
@@ -130,15 +145,60 @@ impl State {
         }
     }
     fn tick(&mut self, delta_time: f32) {
-        for shark in self.sharks.values_mut() {
+        for (&shark_id, shark) in &mut self.sharks {
+            if let Some(timer) = &mut shark.destroy_timer {
+                *timer += delta_time;
+                if *timer > 1.0 {
+                    shark.destroy_timer = None;
+                    let tile = shark.destroy.take().unwrap();
+                    self.raft.remove(&tile);
+
+                    for sender in self.senders.values_mut() {
+                        sender.send(ServerMessage::Destroy(shark_id, tile));
+                    }
+                }
+                continue;
+            }
+
             let delta = shark.target_pos.extend(self.config.shark.depth) - shark.pos.pos;
             shark.pos.pos += delta.clamp_len(..=delta_time * self.config.shark.speed);
             if delta.len() < 1e-5 {
-                shark.target_pos = thread_rng().gen_circle(
-                    vec2::ZERO,
-                    self.config.raft_size as f32 * self.config.tile_size
-                        + self.config.shark.extra_move_radius,
-                );
+                if let Some(tile) = shark.destroy {
+                    if self.raft.contains(&tile) {
+                        for sender in self.senders.values_mut() {
+                            sender.send(ServerMessage::AboutToDestroy(shark_id, tile));
+                        }
+                        shark.destroy_timer = Some(0.0);
+                    } else {
+                        shark.destroy = None;
+                    }
+                    continue;
+                }
+                let bb = Aabb2::points_bounding_box(self.raft.iter().copied())
+                    .map_or(Aabb2::ZERO, |bb| bb.map(|x| x as f32));
+                let center = bb.center();
+                let r = partial_max(bb.width(), bb.height()) / 2.0 * self.config.tile_size;
+
+                if thread_rng().gen_bool(self.config.shark.attack_prob) && !self.raft.is_empty() {
+                    let (tile, empty) = self
+                        .raft
+                        .iter()
+                        .copied()
+                        .filter_map(|tile| {
+                            [vec2(-1, 0), vec2(1, 0), vec2(0, -1), vec2(0, 1)]
+                                .into_iter()
+                                .map(|d| tile + d)
+                                .find(|&next| !self.raft.contains(&next))
+                                .map(|next| (tile, next))
+                        })
+                        .choose(&mut thread_rng())
+                        .unwrap();
+                    shark.target_pos = empty.map(|x| x as f32) * self.config.tile_size;
+                    shark.destroy = Some(tile);
+                } else {
+                    shark.target_pos =
+                        thread_rng().gen_circle(center, r + self.config.shark.extra_move_radius);
+                }
             } else {
                 shark.pos.vel = delta.normalize_or_zero() * self.config.shark.speed;
                 shark.pos.rot = delta.xy().arg();
