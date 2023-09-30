@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ctrlc = "3.4.1"
 geng = { git = "https://github.com/geng-engine/geng" }
 noise = "0.8.2"
 pog-paint = { git = "https://github.com/kuviman/PogPaint" }

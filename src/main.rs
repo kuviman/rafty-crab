@@ -1,14 +1,45 @@
 use assets::Assets;
 use camera::Camera;
 use geng::prelude::*;
+use interpolation::Interpolated;
 use model_draw::ModelDraw;
 
 mod assets;
 mod camera;
 mod model_draw;
+#[cfg(not(target_arch = "wasm32"))]
+mod server;
+
+mod interpolation;
+
+type Id = i64;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Spawn {
+    pub pos: Pos,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ServerMessage {
+    YouSpawn(Spawn),
+    Pog,
+    NewPlayer { id: Id, pos: Pos },
+    UpdatePos { id: Id, pos: Pos },
+    PlayerLeft { id: Id },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ClientMessage {
+    Pig,
+    UpdatePos(Pos),
+}
 
 #[derive(clap::Parser)]
 pub struct Cli {
+    #[clap(long)]
+    pub server: Option<String>,
+    #[clap(long)]
+    pub connect: Option<String>,
     #[clap(flatten)]
     pub geng: geng::CliArgs,
 }
@@ -35,6 +66,7 @@ impl Ctx {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct Pos {
     pub pos: vec3<f32>,
     pub rot: Angle<f32>,
@@ -47,24 +79,60 @@ impl Pos {
     }
 }
 
+pub struct InterpolatedPos {
+    pub pos: Interpolated<vec3<f32>>,
+    pub rot: Interpolated<Angle<f32>>,
+}
+
+impl InterpolatedPos {
+    pub fn new(pos: Pos) -> Self {
+        Self {
+            pos: Interpolated::new(pos.pos, pos.vel),
+            rot: Interpolated::new(pos.rot, Angle::ZERO),
+        }
+    }
+    pub fn server_update(&mut self, pos: Pos) {
+        self.pos.server_update(pos.pos, pos.vel);
+        self.rot.server_update(pos.rot, Angle::ZERO);
+    }
+    pub fn update(&mut self, delta_time: f32) {
+        self.pos.update(delta_time);
+        self.rot.update(delta_time);
+    }
+    fn get(&self) -> Pos {
+        Pos {
+            pos: self.pos.get(),
+            rot: self.rot.get(),
+            vel: self.pos.get_derivative(),
+        }
+    }
+}
+
+struct OtherPlayer {
+    pos: InterpolatedPos,
+}
+
 pub struct Game {
+    con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ctx: Ctx,
     pos: Pos,
     camera: Camera,
     framebuffer_size: vec2<f32>,
     time: f32,
     wave_dir: vec2<f32>,
+    others: HashMap<Id, OtherPlayer>,
 }
 
 impl Game {
-    pub fn new(ctx: &Ctx) -> Self {
+    pub fn new(
+        ctx: &Ctx,
+        con: geng::net::client::Connection<ServerMessage, ClientMessage>,
+        spawn: Spawn,
+    ) -> Self {
         Self {
+            con,
             ctx: ctx.clone(),
-            pos: Pos {
-                pos: vec3::ZERO,
-                rot: Angle::ZERO,
-                vel: vec3::ZERO,
-            },
+            pos: spawn.pos,
             camera: Camera {
                 pos: vec3::ZERO,
                 fov: Angle::from_degrees(ctx.assets.config.camera.fov),
@@ -75,6 +143,7 @@ impl Game {
             framebuffer_size: vec2::splat(1.0),
             time: 0.0,
             wave_dir: ctx.assets.config.wave.dir.normalize_or_zero(),
+            others: default(),
         }
     }
     pub async fn run(mut self) {
@@ -91,6 +160,37 @@ impl Game {
                         .with_framebuffer(|framebuffer| self.draw(framebuffer));
                 }
                 _ => {}
+            }
+
+            let new_messages: Vec<_> = self.con.new_messages().collect();
+            for message in new_messages {
+                self.handle_server(message.unwrap());
+            }
+        }
+    }
+
+    fn handle_server(&mut self, message: ServerMessage) {
+        match message {
+            ServerMessage::YouSpawn(spawn) => {
+                self.pos = spawn.pos;
+            }
+            ServerMessage::NewPlayer { id, pos } => {
+                self.others.insert(
+                    id,
+                    OtherPlayer {
+                        pos: InterpolatedPos::new(pos),
+                    },
+                );
+            }
+            ServerMessage::UpdatePos { id, pos } => {
+                self.others.get_mut(&id).unwrap().pos.server_update(pos);
+            }
+            ServerMessage::PlayerLeft { id } => {
+                self.others.remove(&id);
+            }
+            ServerMessage::Pog => {
+                self.con.send(ClientMessage::Pig);
+                self.con.send(ClientMessage::UpdatePos(self.pos));
             }
         }
     }
@@ -150,21 +250,17 @@ impl Game {
         self.camera.pos += (delta * self.ctx.assets.config.camera.speed * delta_time)
             .clamp_len(..=delta.len())
             .extend(0.0);
+
+        for other in self.others.values_mut() {
+            other.pos.update(delta_time);
+        }
     }
 
-    fn draw(&mut self, framebuffer: &mut ugli::Framebuffer) {
-        self.framebuffer_size = framebuffer.size().map(|x| x as f32);
-        ugli::clear(
-            framebuffer,
-            Some(self.ctx.assets.config.water.color),
-            Some(1.0),
-            None,
-        );
-
-        let transform = self.pos.transform()
+    fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos) {
+        let transform = pos.transform()
             * mat4::translate(
                 vec3::UNIT_Z
-                    * (/*self.height_at(self.pos.pos.xy()) +*/self.ctx.assets.config.crab_animation.z),
+                    * (/*self.height_at(pos.pos.xy()) +*/self.ctx.assets.config.crab_animation.z),
             );
         self.ctx.model_draw.draw(
             framebuffer,
@@ -180,9 +276,24 @@ impl Game {
                 * mat4::rotate_z(Angle::from_degrees(
                     (self.time * self.ctx.assets.config.crab_animation.legs_freq).sin()
                         * self.ctx.assets.config.crab_animation.legs_amp
-                        * (self.pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
+                        * (pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
                 )),
         );
+    }
+
+    fn draw(&mut self, framebuffer: &mut ugli::Framebuffer) {
+        self.framebuffer_size = framebuffer.size().map(|x| x as f32);
+        ugli::clear(
+            framebuffer,
+            Some(self.ctx.assets.config.water.color),
+            Some(1.0),
+            None,
+        );
+
+        self.draw_crab(framebuffer, self.pos);
+        for other in self.others.values() {
+            self.draw_crab(framebuffer, other.pos.get());
+        }
 
         let angle = Angle::from_degrees(self.time * 10.0);
         self.ctx.model_draw.draw(
@@ -262,17 +373,80 @@ impl Game {
 fn main() {
     logger::init();
     geng::setup_panic_handler();
-    let cli: Cli = cli::parse();
-    Geng::run_with(
-        &{
-            let mut options = geng::ContextOptions::default();
-            options.window.title = "Crabs".to_owned();
-            options.with_cli(&cli.geng);
-            options
-        },
-        |geng| async move {
-            let ctx = Ctx::new(&geng).await;
-            Game::new(&ctx).run().await;
-        },
-    )
+    let mut cli: Cli = cli::parse();
+
+    if cli.connect.is_none() && cli.server.is_none() {
+        #[cfg(target_arch = "wasm32")]
+        {
+            cli.connect = Some(
+                option_env!("CONNECT")
+                    .filter(|addr| !addr.is_empty())
+                    .map(|addr| addr.to_owned())
+                    .unwrap_or_else(|| {
+                        let window = web_sys::window().unwrap();
+                        let location = window.location();
+                        let mut new_uri = String::new();
+                        if location.protocol().unwrap() == "https" {
+                            new_uri += "wss://";
+                        } else {
+                            new_uri += "ws://";
+                        }
+                        new_uri += &location.host().unwrap();
+                        new_uri += &location.pathname().unwrap();
+                        new_uri
+                    }),
+            );
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            cli.server = Some("127.0.0.1:1155".to_owned());
+            cli.connect = Some("ws://127.0.0.1:1155".to_owned());
+        }
+    }
+    if cli.server.is_some() && cli.connect.is_none() {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let server = geng::net::Server::new(server::App::new(), cli.server.as_deref().unwrap());
+            let server_handle = server.handle();
+            ctrlc::set_handler(move || server_handle.shutdown()).unwrap();
+            server.run();
+        }
+    } else {
+        #[cfg(not(target_arch = "wasm32"))]
+        let server = if let Some(addr) = &cli.server {
+            let server = geng::net::Server::new(server::App::new(), addr);
+            let server_handle = server.handle();
+            let server_thread = std::thread::spawn(move || {
+                server.run();
+            });
+            Some((server_handle, server_thread))
+        } else {
+            None
+        };
+
+        Geng::run_with(
+            &{
+                let mut options = geng::ContextOptions::default();
+                options.window.title = "Crabs".to_owned();
+                options.with_cli(&cli.geng);
+                options
+            },
+            |geng| async move {
+                let ctx = Ctx::new(&geng).await;
+                let mut con = geng::net::client::connect(cli.connect.as_deref().unwrap())
+                    .await
+                    .unwrap();
+                let ServerMessage::YouSpawn(spawn) = con.next().await.unwrap().unwrap() else {
+                    panic!()
+                };
+                Game::new(&ctx, con, spawn).run().await;
+            },
+        );
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((server_handle, server_thread)) = server {
+            server_handle.shutdown();
+            server_thread.join().unwrap();
+        }
+    }
 }
