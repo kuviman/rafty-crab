@@ -183,8 +183,18 @@ impl Game {
                         * (self.pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
                 )),
         );
-        for x in -10..=10 {
-            for y in -10..=10 {
+
+        let angle = Angle::from_degrees(self.time * 10.0);
+        self.ctx.model_draw.draw(
+            framebuffer,
+            &self.camera,
+            &self.ctx.assets.shark,
+            mat4::translate(vec2(8.0, 0.0).rotate(angle).extend(-2.0))
+                * mat4::rotate_z(angle + Angle::from_degrees(270.0)),
+        );
+
+        for x in -1..=1 {
+            for y in -1..=1 {
                 self.ctx.model_draw.draw(
                     framebuffer,
                     &self.camera,

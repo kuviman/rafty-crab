@@ -61,5 +61,6 @@ pub struct Assets {
     pub shaders: Shaders,
     pub config: Config,
     pub crab: Crab,
+    pub shark: pog_paint::Model,
     pub raft_tile: pog_paint::Model,
 }
