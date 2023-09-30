@@ -53,6 +53,7 @@ pub enum ServerMessage {
     UpdatePos { id: Id, pos: Pos },
     PlayerLeft { id: Id },
     UpdateSharks(HashMap<i64, Shark>),
+    PlayerDrown(i64),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -139,6 +140,23 @@ struct OtherPlayer {
     pos: InterpolatedPos,
 }
 
+struct Vfx {
+    t: f32,
+    max_t: f32,
+    pos: vec3<f32>,
+    rot: Angle<f32>,
+}
+impl Vfx {
+    fn new(pos: vec3<f32>) -> Vfx {
+        Self {
+            t: 0.0,
+            max_t: 0.3,
+            pos,
+            rot: thread_rng().gen(),
+        }
+    }
+}
+
 pub struct Game {
     con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ctx: Ctx,
@@ -150,6 +168,7 @@ pub struct Game {
     others: HashMap<Id, OtherPlayer>,
     raft: HashSet<vec2<i32>>,
     sharks: HashMap<Id, InterpolatedShark>,
+    splashes: Vec<Vfx>,
 }
 
 impl Game {
@@ -174,6 +193,7 @@ impl Game {
             others: default(),
             raft: default(),
             sharks: default(),
+            splashes: default(),
         }
     }
     pub async fn run(mut self) {
@@ -201,8 +221,18 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::PlayerDrown(id) => {
+                if let Some(other) = self.others.remove(&id) {
+                    self.splashes
+                        .push(Vfx::new(other.pos.get().pos.xy().extend(0.0)));
+                    self.ctx.assets.splash_sfx.play();
+                }
+            }
             ServerMessage::YouDrown => {
-                self.me = None;
+                if let Some(me) = self.me.take() {
+                    self.splashes.push(Vfx::new(me.pos.xy().extend(0.0)));
+                    self.ctx.assets.splash_sfx.play();
+                }
             }
             ServerMessage::YouSpawn(spawn) => {
                 self.me = Some(spawn.pos);
@@ -307,6 +337,11 @@ impl Game {
         for shark in self.sharks.values_mut() {
             shark.update(delta_time);
         }
+
+        for vfx in &mut self.splashes {
+            vfx.t += delta_time;
+        }
+        self.splashes.retain(|vfx| vfx.t < vfx.max_t);
     }
 
     fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos) {
@@ -367,6 +402,18 @@ impl Game {
                 mat4::translate(
                     (tile.map(|x| x as f32) * self.ctx.assets.config.tile_size).extend(0.0),
                 ) * self.tile_transform(tile),
+            );
+        }
+
+        // vfx
+        for vfx in &self.splashes {
+            self.ctx.model_draw.draw(
+                framebuffer,
+                &self.camera,
+                &self.ctx.assets.splash,
+                mat4::translate(vfx.pos)
+                    * mat4::rotate_z(vfx.rot)
+                    * mat4::scale_uniform(1.0 + (vfx.t / vfx.max_t) * 0.5),
             );
         }
 

@@ -73,5 +73,7 @@ pub struct Assets {
     pub config: Config,
     pub crab: Crab,
     pub shark: pog_paint::Model,
+    pub splash: pog_paint::Model,
+    pub splash_sfx: geng::Sound,
     pub raft_tile: pog_paint::Model,
 }

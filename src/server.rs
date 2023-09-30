@@ -93,19 +93,29 @@ impl State {
         let sender = self.senders.get_mut(&client).unwrap();
         match message {
             ClientMessage::UpdatePos(pos) => {
-                self.player_pos.insert(client, pos);
-
-                if Aabb2::ZERO
-                    .extend_uniform(1)
-                    .extend_positive(vec2::splat(1))
-                    .points()
-                    .all(|p| {
-                        let tile = (pos.pos.xy() + p.map(|x| x as f32))
-                            .map(|x| (x / self.config.tile_size).round() as i32);
-                        !self.raft.contains(&tile)
-                    })
+                if let std::collections::hash_map::Entry::Occupied(mut e) =
+                    self.player_pos.entry(client)
                 {
-                    sender.send(ServerMessage::YouDrown);
+                    e.insert(pos);
+                    if Aabb2::ZERO
+                        .extend_uniform(1)
+                        .extend_positive(vec2::splat(1))
+                        .points()
+                        .all(|p| {
+                            let tile = (pos.pos.xy() + p.map(|x| x as f32))
+                                .map(|x| (x / self.config.tile_size).round() as i32);
+                            !self.raft.contains(&tile)
+                        })
+                    {
+                        self.player_pos.remove(&client);
+                        sender.send(ServerMessage::YouDrown);
+                        for (&id, other) in &mut self.senders {
+                            if id == client {
+                                continue;
+                            }
+                            other.send(ServerMessage::PlayerDrown(client));
+                        }
+                    }
                 }
             }
             ClientMessage::Pig => {
