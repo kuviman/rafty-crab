@@ -21,6 +21,7 @@ pub struct Spawn {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ServerMessage {
+    UpdateRaft(HashSet<vec2<i32>>),
     YouSpawn(Spawn),
     Pog,
     NewPlayer { id: Id, pos: Pos },
@@ -115,12 +116,13 @@ struct OtherPlayer {
 pub struct Game {
     con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ctx: Ctx,
-    pos: Pos,
+    me: Pos,
     camera: Camera,
     framebuffer_size: vec2<f32>,
     time: f32,
     wave_dir: vec2<f32>,
     others: HashMap<Id, OtherPlayer>,
+    raft: HashSet<vec2<i32>>,
 }
 
 impl Game {
@@ -132,7 +134,7 @@ impl Game {
         Self {
             con,
             ctx: ctx.clone(),
-            pos: spawn.pos,
+            me: spawn.pos,
             camera: Camera {
                 pos: vec3::ZERO,
                 fov: Angle::from_degrees(ctx.assets.config.camera.fov),
@@ -144,6 +146,7 @@ impl Game {
             time: 0.0,
             wave_dir: ctx.assets.config.wave.dir.normalize_or_zero(),
             others: default(),
+            raft: default(),
         }
     }
     pub async fn run(mut self) {
@@ -172,7 +175,7 @@ impl Game {
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
             ServerMessage::YouSpawn(spawn) => {
-                self.pos = spawn.pos;
+                self.me = spawn.pos;
             }
             ServerMessage::NewPlayer { id, pos } => {
                 self.others.insert(
@@ -190,7 +193,10 @@ impl Game {
             }
             ServerMessage::Pog => {
                 self.con.send(ClientMessage::Pig);
-                self.con.send(ClientMessage::UpdatePos(self.pos));
+                self.con.send(ClientMessage::UpdatePos(self.me));
+            }
+            ServerMessage::UpdateRaft(raft) => {
+                self.raft = raft;
             }
         }
     }
@@ -224,15 +230,15 @@ impl Game {
         let mov = mov
             .clamp_len(..=1.0)
             .rotate(self.camera.rot)
-            .rotate(-self.pos.rot);
-        self.pos.vel = (mov
+            .rotate(-self.me.rot);
+        self.me.vel = (mov
             * vec2(
                 self.ctx.assets.config.forward_speed,
                 self.ctx.assets.config.side_speed,
             ))
-        .rotate(self.pos.rot)
+        .rotate(self.me.rot)
         .extend(0.0);
-        self.pos.pos += self.pos.vel * delta_time;
+        self.me.pos += self.me.vel * delta_time;
 
         if let Some(pos) = self.ctx.geng.window().cursor_position() {
             let ray = self
@@ -241,12 +247,12 @@ impl Game {
             if ray.dir.z < -1e-5 {
                 let t = -ray.from.z / ray.dir.z;
                 let ground_pos = ray.from + ray.dir * t;
-                let delta_pos = ground_pos - self.pos.pos;
-                self.pos.rot = delta_pos.xy().arg();
+                let delta_pos = ground_pos - self.me.pos;
+                self.me.rot = delta_pos.xy().arg();
             }
         }
 
-        let delta = self.pos.pos.xy() - self.camera.pos.xy();
+        let delta = self.me.pos.xy() - self.camera.pos.xy();
         self.camera.pos += (delta * self.ctx.assets.config.camera.speed * delta_time)
             .clamp_len(..=delta.len())
             .extend(0.0);
@@ -290,7 +296,7 @@ impl Game {
             None,
         );
 
-        self.draw_crab(framebuffer, self.pos);
+        self.draw_crab(framebuffer, self.me);
         for other in self.others.values() {
             self.draw_crab(framebuffer, other.pos.get());
         }
@@ -304,18 +310,15 @@ impl Game {
                 * mat4::rotate_z(angle + Angle::from_degrees(270.0)),
         );
 
-        for x in -1..=1 {
-            for y in -1..=1 {
-                self.ctx.model_draw.draw(
-                    framebuffer,
-                    &self.camera,
-                    &self.ctx.assets.raft_tile,
-                    mat4::translate(
-                        (vec2(x, y).map(|x| x as f32) * self.ctx.assets.config.tile_size)
-                            .extend(0.0),
-                    ) * self.tile_transform(vec2(x, y)),
-                );
-            }
+        for &tile in &self.raft {
+            self.ctx.model_draw.draw(
+                framebuffer,
+                &self.camera,
+                &self.ctx.assets.raft_tile,
+                mat4::translate(
+                    (tile.map(|x| x as f32) * self.ctx.assets.config.tile_size).extend(0.0),
+                ) * self.tile_transform(tile),
+            );
         }
 
         // water

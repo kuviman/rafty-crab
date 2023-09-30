@@ -1,6 +1,12 @@
 use super::*;
 
+#[derive(Deserialize)]
+pub struct Config {
+    raft_size: i32,
+}
+
 struct State {
+    config: Config,
     last_id: Id,
     player_pos: HashMap<Id, Pos>,
     raft: HashSet<vec2<i32>>,
@@ -8,6 +14,20 @@ struct State {
 }
 
 impl State {
+    fn new(config: Config) -> Self {
+        Self {
+            player_pos: default(),
+            last_id: 0,
+            senders: default(),
+            raft: Aabb2::ZERO
+                .extend_uniform(config.raft_size)
+                .extend_positive(vec2::splat(1))
+                .points()
+                .filter(|tile| tile.map(|x| x as f32).len() <= config.raft_size as f32 + 0.5)
+                .collect(),
+            config,
+        }
+    }
     pub fn new_player(&mut self, mut sender: Box<dyn geng::net::Sender<ServerMessage>>) -> Id {
         self.last_id += 1;
         let id = self.last_id;
@@ -31,6 +51,7 @@ impl State {
                 sender.send(ServerMessage::NewPlayer { id: other_id, pos });
             }
         }
+        sender.send(ServerMessage::UpdateRaft(self.raft.clone()));
         self.senders.insert(id, sender);
         id
     }
@@ -59,24 +80,19 @@ impl State {
     }
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            player_pos: default(),
-            last_id: 0,
-            senders: default(),
-            raft: default(),
-        }
-    }
-}
-
 pub struct App {
     state: Arc<Mutex<State>>,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self { state: default() }
+        let config = futures::executor::block_on(file::load_detect(
+            run_dir().join("assets").join("server_config.toml"),
+        ))
+        .unwrap();
+        Self {
+            state: Arc::new(Mutex::new(State::new(config))),
+        }
     }
 }
 
