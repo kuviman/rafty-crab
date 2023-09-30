@@ -1,6 +1,7 @@
 use super::*;
 
 pub struct Camera {
+    pub pos: vec3<f32>,
     pub fov: Angle<f32>,
     pub rot: Angle<f32>,
     pub attack: Angle<f32>,
@@ -12,6 +13,7 @@ impl AbstractCamera3d for Camera {
         mat4::translate(vec3(0.0, 0.0, -self.distance))
             * mat4::rotate_x(-Angle::from_degrees(90.0) + self.attack)
             * mat4::rotate_z(-self.rot)
+            * mat4::translate(-self.pos)
     }
 
     fn projection_matrix(&self, framebuffer_size: vec2<f32>) -> mat4<f32> {

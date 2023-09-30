@@ -65,6 +65,7 @@ impl Game {
                 vel: vec3::ZERO,
             },
             camera: Camera {
+                pos: vec3::ZERO,
                 fov: Angle::from_degrees(ctx.assets.config.camera.fov),
                 rot: Angle::from_degrees(ctx.assets.config.camera.rot),
                 attack: Angle::from_degrees(ctx.assets.config.camera.attack),
@@ -146,7 +147,12 @@ impl Game {
 
     fn draw(&mut self, framebuffer: &mut ugli::Framebuffer) {
         self.framebuffer_size = framebuffer.size().map(|x| x as f32);
-        ugli::clear(framebuffer, Some(Rgba::BLACK), Some(1.0), None);
+        ugli::clear(
+            framebuffer,
+            Some(self.ctx.assets.config.water.color),
+            Some(1.0),
+            None,
+        );
         self.ctx.model_draw.draw(
             framebuffer,
             &self.camera,
@@ -163,6 +169,51 @@ impl Game {
                         * self.ctx.assets.config.crab_animation.legs_amp
                         * (self.pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
                 )),
+        );
+        let wave_dir = self.ctx.assets.config.wave.dir.normalize_or_zero();
+        for x in -10..=10 {
+            for y in -10..=10 {
+                let (wave_sin, wave_cos) = (vec2::dot(vec2(x, y).map(|x| x as f32), wave_dir)
+                    * self.ctx.assets.config.wave.freq
+                    + self.time * self.ctx.assets.config.wave.speed)
+                    .sin_cos();
+                self.ctx.model_draw.draw(
+                    framebuffer,
+                    &self.camera,
+                    &self.ctx.assets.raft_tile,
+                    mat4::translate(
+                        (vec2(x, y).map(|x| x as f32) * self.ctx.assets.config.tile_size)
+                            .extend(wave_sin * self.ctx.assets.config.wave.vertical_amp),
+                    ) * mat4::rotate(
+                        wave_dir.rotate_90().extend(0.0),
+                        Angle::from_degrees(-wave_cos * self.ctx.assets.config.wave.angle_amp),
+                    ),
+                );
+            }
+        }
+
+        // water
+        let transform = mat4::translate(self.camera.pos)
+            * mat4::translate(vec3(0.0, 0.0, self.ctx.assets.config.water.z))
+            * mat4::scale_uniform(1000.0)
+            * mat4::translate(vec2::splat(-0.5).extend(0.0));
+        ugli::draw(
+            framebuffer,
+            &self.ctx.assets.shaders.water,
+            ugli::DrawMode::TriangleFan,
+            &self.ctx.model_draw.quad,
+            (
+                ugli::uniforms! {
+                    u_water_color: self.ctx.assets.config.water.color,
+                    u_model_matrix: transform,
+                },
+                self.camera.uniforms(self.framebuffer_size),
+            ),
+            ugli::DrawParameters {
+                depth_func: Some(ugli::DepthFunc::LessOrEqual),
+                blend_mode: Some(ugli::BlendMode::straight_alpha()),
+                ..default()
+            },
         );
     }
 }

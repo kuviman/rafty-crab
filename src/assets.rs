@@ -14,19 +14,38 @@ pub struct CrabAnimation {
     pub legs_amp: f32,
 }
 
+#[derive(Deserialize)]
+pub struct WaveConfig {
+    pub dir: vec2<f32>,
+    pub freq: f32,
+    pub vertical_amp: f32,
+    pub angle_amp: f32,
+    pub speed: f32,
+}
+
+#[derive(Deserialize)]
+pub struct WaterConfig {
+    pub color: Rgba<f32>,
+    pub z: f32,
+}
+
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
+    pub water: WaterConfig,
+    pub tile_size: f32,
     pub scaling: f32,
     pub forward_speed: f32,
     pub side_speed: f32,
     pub camera: CameraConfig,
     pub crab_animation: CrabAnimation,
+    pub wave: WaveConfig,
 }
 
 #[derive(geng::asset::Load)]
 pub struct Shaders {
     pub model: ugli::Program,
+    pub water: ugli::Program,
 }
 
 #[derive(geng::asset::Load)]
@@ -40,4 +59,5 @@ pub struct Assets {
     pub shaders: Shaders,
     pub config: Config,
     pub crab: Crab,
+    pub raft_tile: pog_paint::Model,
 }

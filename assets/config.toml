@@ -1,6 +1,11 @@
 scaling = 16
 forward_speed = 5
 side_speed = 10
+tile_size = 4
+
+[water]
+color = "#608ab899"
+z = -0.2
 
 [camera]
 distance = 20
@@ -11,3 +16,10 @@ fov = 60
 [crab_animation]
 legs_freq = 20
 legs_amp = 20
+
+[wave]
+dir = [1, 3]
+freq = 1
+vertical_amp = 0.1
+angle_amp = 5
+speed = 1

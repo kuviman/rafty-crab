@@ -3,13 +3,13 @@ use super::*;
 pub struct ModelDraw {
     geng: Geng,
     assets: Rc<Assets>,
-    quad: ugli::VertexBuffer<Vertex>,
+    pub quad: ugli::VertexBuffer<Vertex>,
 }
 
 #[derive(ugli::Vertex)]
-struct Vertex {
-    a_pos: vec3<f32>,
-    a_uv: vec2<f32>,
+pub struct Vertex {
+    pub a_pos: vec3<f32>,
+    pub a_uv: vec2<f32>,
 }
 
 impl ModelDraw {
