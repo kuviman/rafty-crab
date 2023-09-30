@@ -3,6 +3,7 @@ use super::*;
 struct State {
     last_id: Id,
     player_pos: HashMap<Id, Pos>,
+    raft: HashSet<vec2<i32>>,
     senders: HashMap<Id, Box<dyn geng::net::Sender<ServerMessage>>>,
 }
 
@@ -64,6 +65,7 @@ impl Default for State {
             player_pos: default(),
             last_id: 0,
             senders: default(),
+            raft: default(),
         }
     }
 }
