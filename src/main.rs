@@ -53,6 +53,7 @@ pub struct Game {
     camera: Camera,
     framebuffer_size: vec2<f32>,
     time: f32,
+    wave_dir: vec2<f32>,
 }
 
 impl Game {
@@ -73,6 +74,7 @@ impl Game {
             },
             framebuffer_size: vec2::splat(1.0),
             time: 0.0,
+            wave_dir: ctx.assets.config.wave.dir.normalize_or_zero(),
         }
     }
     pub async fn run(mut self) {
@@ -143,6 +145,11 @@ impl Game {
                 self.pos.rot = delta_pos.xy().arg();
             }
         }
+
+        let delta = self.pos.pos.xy() - self.camera.pos.xy();
+        self.camera.pos += (delta * self.ctx.assets.config.camera.speed * delta_time)
+            .clamp_len(..=delta.len())
+            .extend(0.0);
     }
 
     fn draw(&mut self, framebuffer: &mut ugli::Framebuffer) {
@@ -153,41 +160,39 @@ impl Game {
             Some(1.0),
             None,
         );
+
+        let transform = self.pos.transform()
+            * mat4::translate(
+                vec3::UNIT_Z
+                    * (/*self.height_at(self.pos.pos.xy()) +*/self.ctx.assets.config.crab_animation.z),
+            );
         self.ctx.model_draw.draw(
             framebuffer,
             &self.camera,
             &self.ctx.assets.crab.body,
-            self.pos.transform(),
+            transform,
         );
         self.ctx.model_draw.draw(
             framebuffer,
             &self.camera,
             &self.ctx.assets.crab.legs,
-            self.pos.transform()
+            transform
                 * mat4::rotate_z(Angle::from_degrees(
                     (self.time * self.ctx.assets.config.crab_animation.legs_freq).sin()
                         * self.ctx.assets.config.crab_animation.legs_amp
                         * (self.pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
                 )),
         );
-        let wave_dir = self.ctx.assets.config.wave.dir.normalize_or_zero();
         for x in -10..=10 {
             for y in -10..=10 {
-                let (wave_sin, wave_cos) = (vec2::dot(vec2(x, y).map(|x| x as f32), wave_dir)
-                    * self.ctx.assets.config.wave.freq
-                    + self.time * self.ctx.assets.config.wave.speed)
-                    .sin_cos();
                 self.ctx.model_draw.draw(
                     framebuffer,
                     &self.camera,
                     &self.ctx.assets.raft_tile,
                     mat4::translate(
                         (vec2(x, y).map(|x| x as f32) * self.ctx.assets.config.tile_size)
-                            .extend(wave_sin * self.ctx.assets.config.wave.vertical_amp),
-                    ) * mat4::rotate(
-                        wave_dir.rotate_90().extend(0.0),
-                        Angle::from_degrees(-wave_cos * self.ctx.assets.config.wave.angle_amp),
-                    ),
+                            .extend(0.0),
+                    ) * self.tile_transform(vec2(x, y)),
                 );
             }
         }
@@ -215,6 +220,32 @@ impl Game {
                 ..default()
             },
         );
+    }
+
+    fn height_at(&self, pos: vec2<f32>) -> f32 {
+        let tile = pos.map(|x| (x / self.ctx.assets.config.tile_size).round() as i32);
+        let tile_transform = self.tile_transform(tile);
+        let pos_in_tile = pos - tile.map(|x| x as f32 * self.ctx.assets.config.tile_size);
+        (tile_transform * pos_in_tile.extend(0.0).extend(1.0))
+            .into_3d()
+            .z
+    }
+
+    fn tile_transform(&self, pos: vec2<i32>) -> mat4<f32> {
+        let (wave_z, wave_angle) = {
+            let (wave_sin, wave_cos) = ((vec2::dot(
+                pos.map(|x| x as f32) * self.ctx.assets.config.tile_size,
+                self.wave_dir,
+            ) + self.time * self.ctx.assets.config.wave.speed)
+                * self.ctx.assets.config.wave.freq)
+                .sin_cos();
+            (
+                wave_sin * self.ctx.assets.config.wave.vertical_amp,
+                Angle::from_degrees(-wave_cos * self.ctx.assets.config.wave.angle_amp),
+            )
+        };
+        mat4::translate(vec3(0.0, 0.0, wave_z))
+            * mat4::rotate(self.wave_dir.rotate_90().extend(0.0), wave_angle)
     }
 }
 

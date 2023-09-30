@@ -6,12 +6,14 @@ pub struct CameraConfig {
     pub attack: f32,
     pub rot: f32,
     pub fov: f32,
+    pub speed: f32,
 }
 
 #[derive(Deserialize)]
 pub struct CrabAnimation {
     pub legs_freq: f32,
     pub legs_amp: f32,
+    pub z: f32,
 }
 
 #[derive(Deserialize)]

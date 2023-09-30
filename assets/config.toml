@@ -1,6 +1,6 @@
 scaling = 16
-forward_speed = 5
-side_speed = 10
+forward_speed = 4
+side_speed = 7
 tile_size = 4
 
 [water]
@@ -12,10 +12,12 @@ distance = 20
 rot = 30
 attack = 60
 fov = 60
+speed = 2
 
 [crab_animation]
 legs_freq = 20
 legs_amp = 20
+z = 0.5
 
 [wave]
 dir = [1, 3]
