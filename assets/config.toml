@@ -3,7 +3,11 @@ forward_speed = 5
 side_speed = 10
 
 [camera]
-distance = 40
+distance = 20
 rot = 30
 attack = 60
 fov = 60
+
+[crab_animation]
+legs_freq = 20
+legs_amp = 20

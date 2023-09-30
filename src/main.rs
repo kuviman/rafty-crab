@@ -52,6 +52,7 @@ pub struct Game {
     pos: Pos,
     camera: Camera,
     framebuffer_size: vec2<f32>,
+    time: f32,
 }
 
 impl Game {
@@ -70,6 +71,7 @@ impl Game {
                 distance: ctx.assets.config.camera.distance,
             },
             framebuffer_size: vec2::splat(1.0),
+            time: 0.0,
         }
     }
     pub async fn run(mut self) {
@@ -92,6 +94,7 @@ impl Game {
 
     fn update(&mut self, delta_time: time::Duration) {
         let delta_time = delta_time.as_secs_f64() as f32;
+        self.time += delta_time;
 
         let mut mov = vec2::<f32>::ZERO;
         if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowLeft)
@@ -119,14 +122,14 @@ impl Game {
             .clamp_len(..=1.0)
             .rotate(self.camera.rot)
             .rotate(-self.pos.rot);
-        self.pos.pos += (mov
+        self.pos.vel = (mov
             * vec2(
                 self.ctx.assets.config.forward_speed,
                 self.ctx.assets.config.side_speed,
             ))
         .rotate(self.pos.rot)
-        .extend(0.0)
-            * delta_time;
+        .extend(0.0);
+        self.pos.pos += self.pos.vel * delta_time;
 
         if let Some(pos) = self.ctx.geng.window().cursor_position() {
             let ray = self
@@ -147,8 +150,19 @@ impl Game {
         self.ctx.model_draw.draw(
             framebuffer,
             &self.camera,
-            &self.ctx.assets.crab,
+            &self.ctx.assets.crab.body,
             self.pos.transform(),
+        );
+        self.ctx.model_draw.draw(
+            framebuffer,
+            &self.camera,
+            &self.ctx.assets.crab.legs,
+            self.pos.transform()
+                * mat4::rotate_z(Angle::from_degrees(
+                    (self.time * self.ctx.assets.config.crab_animation.legs_freq).sin()
+                        * self.ctx.assets.config.crab_animation.legs_amp
+                        * (self.pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
+                )),
         );
     }
 }

@@ -8,6 +8,12 @@ pub struct CameraConfig {
     pub fov: f32,
 }
 
+#[derive(Deserialize)]
+pub struct CrabAnimation {
+    pub legs_freq: f32,
+    pub legs_amp: f32,
+}
+
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
@@ -15,6 +21,7 @@ pub struct Config {
     pub forward_speed: f32,
     pub side_speed: f32,
     pub camera: CameraConfig,
+    pub crab_animation: CrabAnimation,
 }
 
 #[derive(geng::asset::Load)]
@@ -23,8 +30,14 @@ pub struct Shaders {
 }
 
 #[derive(geng::asset::Load)]
+pub struct Crab {
+    pub body: pog_paint::Model,
+    pub legs: pog_paint::Model,
+}
+
+#[derive(geng::asset::Load)]
 pub struct Assets {
-    pub crab: pog_paint::Model,
     pub shaders: Shaders,
     pub config: Config,
+    pub crab: Crab,
 }
