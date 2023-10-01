@@ -3,6 +3,7 @@ use geng::net::Server;
 use super::*;
 
 struct State {
+    names: HashMap<Id, String>,
     attacks: HashMap<Id, (vec2<f32>, f32)>,
     should_exit: bool,
     config: assets::Config,
@@ -83,6 +84,7 @@ impl State {
     fn new(config: assets::Config) -> Self {
         let mut id_gen = IdGen { last_id: 0 };
         Self {
+            names: default(),
             wait_for_teleport_ack: default(),
             attacks: default(),
             dash_cooldowns: default(),
@@ -124,6 +126,9 @@ impl State {
         }
         sender.send(ServerMessage::UpdateRaft(self.raft.clone()));
         sender.send(ServerMessage::UpdateSharks(self.sharks.clone()));
+        for (&other_id, name) in &self.names {
+            sender.send(ServerMessage::Name(other_id, name.clone()));
+        }
         self.senders.insert(id, sender);
         id
     }
@@ -133,10 +138,19 @@ impl State {
         for sender in self.senders.values_mut() {
             sender.send(ServerMessage::PlayerLeft { id: client });
         }
+        self.names.remove(&client);
     }
     pub fn handle(&mut self, client: Id, message: ClientMessage) {
         let sender = self.senders.get_mut(&client).unwrap();
         match message {
+            ClientMessage::Name(name) => {
+                for (&id, other) in &mut self.senders {
+                    if id != client {
+                        other.send(ServerMessage::Name(client, name.clone()));
+                    }
+                }
+                self.names.insert(client, name);
+            }
             ClientMessage::Attack(target) => {
                 if !self.dash_cooldowns.contains_key(&client) {
                     if let Some(pos) = &self.player_pos.get(&client) {

@@ -66,6 +66,7 @@ pub enum ServerMessage {
     Dash(i64, Pos),
     YouWasPushed(vec2<f32>),
     WasPushed(i64, Pos),
+    Name(i64, String),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -74,6 +75,7 @@ pub enum ClientMessage {
     UpdatePos(Pos),
     Attack(vec3<f32>),
     TeleportAck,
+    Name(String),
 }
 
 #[derive(clap::Parser)]
@@ -177,6 +179,8 @@ impl Vfx {
 }
 
 pub struct Game {
+    names: HashMap<Id, String>,
+    name: String,
     naming: bool,
     attacks: HashSet<Id>,
     attacking: bool,
@@ -200,7 +204,10 @@ impl Game {
         ctx: &Ctx,
         con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ) -> Self {
+        ctx.geng.window().start_text_edit("");
         Self {
+            names: default(),
+            name: "".to_owned(),
             naming: true,
             attacks: default(),
             attacking: false,
@@ -230,6 +237,16 @@ impl Game {
         let mut timer = Timer::new();
         while let Some(event) = events.next().await {
             match event {
+                geng::Event::EditText(new_name) => {
+                    self.name = new_name;
+                }
+                geng::Event::KeyPress {
+                    key: geng::Key::Enter,
+                } => {
+                    self.naming = false;
+                    self.con.send(ClientMessage::Name(self.name.clone()));
+                    self.ctx.geng.window().stop_text_edit();
+                }
                 geng::Event::MousePress {
                     button: geng::MouseButton::Left,
                 } if self.can_dash => {
@@ -269,6 +286,9 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::Name(id, name) => {
+                self.names.insert(id, name);
+            }
             ServerMessage::WasPushed(id, new_pos) => {
                 self.ctx.assets.sfx.bonk.play();
                 if let Some(other) = self.others.get_mut(&id) {
@@ -518,7 +538,7 @@ impl Game {
         }
 
         for (id, shark) in &self.sharks {
-            if let Some(tile) = self.shark_attacks.get(&id) {
+            if let Some(tile) = self.shark_attacks.get(id) {
                 let pos = shark.pos.get().pos;
                 self.ctx.model_draw.draw(
                     framebuffer,
@@ -588,6 +608,40 @@ impl Game {
                 ..default()
             },
         );
+
+        if self.naming {
+            let font = self.ctx.geng.default_font();
+            let camera = geng::Camera2d {
+                fov: 10.0,
+                center: vec2::ZERO,
+                rotation: Angle::ZERO,
+            };
+            font.draw(
+                framebuffer,
+                &camera,
+                "Type your name:",
+                vec2::splat(geng::TextAlign::CENTER),
+                mat3::translate(vec2(0.0, 2.0)),
+                Rgba::new(0.2, 0.2, 0.2, 1.0),
+            );
+            font.draw(
+                framebuffer,
+                &camera,
+                &self.name,
+                vec2::splat(geng::TextAlign::CENTER),
+                mat3::identity(),
+                Rgba::BLACK,
+            );
+        } else {
+            if let Some(me) = &self.me {
+                self.draw_name(framebuffer, &self.name, *me);
+            }
+            for (&id, other) in &self.others {
+                if let Some(name) = self.names.get(&id) {
+                    self.draw_name(framebuffer, name, other.pos.get());
+                }
+            }
+        }
     }
 
     fn height_at(&self, pos: vec2<f32>) -> f32 {
@@ -614,6 +668,37 @@ impl Game {
         };
         mat4::translate(vec3(0.0, 0.0, wave_z))
             * mat4::rotate(self.wave_dir.rotate_90().extend(0.0), wave_angle)
+    }
+
+    fn draw_name(&self, framebuffer: &mut ugli::Framebuffer<'_>, name: &str, pos: Pos) {
+        let font = self.ctx.geng.default_font();
+        let Some(texture) = font.create_text_sdf(name, geng::TextAlign::CENTER, 32.0) else {
+            return;
+        };
+
+        let transform = mat4::translate(pos.pos + vec3(0.0, 0.0, 1.5))
+            * mat4::rotate_z(-self.camera.rot)
+            * mat4::rotate_x(-Angle::from_degrees(270.0) - self.camera.attack)
+            * mat4::scale(vec3(texture.size().map(|x| x as f32).aspect(), 1.0, 1.0))
+            * mat4::translate(vec3(-0.5, 0.0, 0.0));
+        ugli::draw(
+            framebuffer,
+            &self.ctx.assets.shaders.text,
+            ugli::DrawMode::TriangleFan,
+            &self.ctx.model_draw.quad,
+            (
+                ugli::uniforms! {
+                    u_texture: &texture,
+                    u_model_matrix: transform,
+                },
+                self.camera.uniforms(self.framebuffer_size),
+            ),
+            ugli::DrawParameters {
+                depth_func: Some(ugli::DepthFunc::LessOrEqual),
+                blend_mode: Some(ugli::BlendMode::straight_alpha()),
+                ..default()
+            },
+        );
     }
 }
 

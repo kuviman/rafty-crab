@@ -63,6 +63,7 @@ pub struct Config {
 
 #[derive(geng::asset::Load)]
 pub struct Shaders {
+    pub text: ugli::Program,
     pub model: ugli::Program,
     pub water: ugli::Program,
 }
