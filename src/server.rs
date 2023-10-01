@@ -3,7 +3,7 @@ use geng::net::Server;
 use super::*;
 
 struct State {
-    attacks: HashMap<Id, (vec3<f32>, f32)>,
+    attacks: HashMap<Id, (vec2<f32>, f32)>,
     should_exit: bool,
     config: assets::Config,
     id_gen: IdGen,
@@ -13,6 +13,22 @@ struct State {
     sharks: HashMap<Id, Shark>,
     restart_timer: Option<f32>,
     dash_cooldowns: HashMap<Id, f32>,
+}
+
+fn intersect(from: vec2<f32>, dir: vec2<f32>, center: vec2<f32>, radius: f32) -> Option<f32> {
+    if (from - center).len() < radius {
+        return Some(0.0);
+    }
+    let d = vec2::skew(center - from, dir).abs();
+    if d >= radius {
+        return None;
+    }
+    let x = (radius.sqr() - d.sqr()).sqrt();
+
+    // dot(from + dir * t - center, dir) = 0
+    let t = vec2::dot(center - from, dir) / vec2::dot(dir, dir);
+    let t = t - x;
+    (t > 0.0).then_some(t)
 }
 
 struct IdGen {
@@ -123,13 +139,11 @@ impl State {
                 if !self.dash_cooldowns.contains_key(&client) {
                     if let Some(pos) = &self.player_pos.get(&client) {
                         let dir = (target - pos.pos).xy().normalize_or_zero();
-                        let new_pos = pos.pos + dir.extend(0.0) * self.config.dash_distance;
-                        self.attacks
-                            .insert(client, (new_pos, self.config.attack_time));
-                        sender.send(ServerMessage::YouStartAttack(new_pos));
+                        self.attacks.insert(client, (dir, self.config.attack_time));
+                        sender.send(ServerMessage::YouStartAttack(dir));
                         for (&id, other) in &mut self.senders {
                             if id != client {
-                                other.send(ServerMessage::StartAttack(new_pos, client));
+                                other.send(ServerMessage::StartAttack(dir, client));
                             }
                         }
                     }
@@ -193,17 +207,44 @@ impl State {
         for (_, time) in self.attacks.values_mut() {
             *time -= delta_time;
         }
-        self.attacks.retain(|&client, &mut (new_pos, time)| {
+        self.attacks.retain(|&client, &mut (dir, time)| {
             if time > 0.0 {
                 true
             } else {
-                if let Some(sender) = self.senders.get_mut(&client) {
-                    sender.send(ServerMessage::YouDash(new_pos));
-                    self.dash_cooldowns
-                        .insert(client, self.config.dash_cooldown);
-                    for (&id, other) in &mut self.senders {
-                        if id != client {
-                            other.send(ServerMessage::Dash(client));
+                if let Some(pos) = self.player_pos.get(&client) {
+                    let mut dist = self.config.dash_distance;
+                    if let Some((id, t)) = self
+                        .player_pos
+                        .iter()
+                        .filter(|(id, _)| **id != client)
+                        .filter_map(|(&id, other)| {
+                            intersect(pos.pos.xy(), dir, other.pos.xy(), 2.0).map(|t| (id, t))
+                        })
+                        .min_by_key(|(_, t)| r32(*t))
+                    {
+                        if t < dist {
+                            dist = t;
+                        }
+                        if let Some(sender) = self.senders.get_mut(&id) {
+                            sender
+                                .send(ServerMessage::YouWasPushed(dir * self.config.push_distance));
+                        }
+                        for (&other_id, other) in &mut self.senders {
+                            if other_id != id {
+                                other.send(ServerMessage::WasPushed(id));
+                            }
+                        }
+                    }
+                    let new_pos = pos.pos + dir.extend(0.0) * dist;
+
+                    if let Some(sender) = self.senders.get_mut(&client) {
+                        sender.send(ServerMessage::YouDash(new_pos));
+                        self.dash_cooldowns
+                            .insert(client, self.config.dash_cooldown);
+                        for (&id, other) in &mut self.senders {
+                            if id != client {
+                                other.send(ServerMessage::Dash(client));
+                            }
                         }
                     }
                 }

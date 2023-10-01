@@ -1,6 +1,6 @@
 use assets::Assets;
 use camera::Camera;
-use geng::prelude::*;
+use geng::prelude::{bincode::de, *};
 use interpolation::Interpolated;
 use model_draw::ModelDraw;
 
@@ -61,9 +61,11 @@ pub enum ServerMessage {
     JustRestarted,
     YouDash(vec3<f32>),
     DashRestore,
-    YouStartAttack(vec3<f32>),
-    StartAttack(vec3<f32>, i64),
+    YouStartAttack(vec2<f32>),
+    StartAttack(vec2<f32>, i64),
     Dash(i64),
+    YouWasPushed(vec2<f32>),
+    WasPushed(i64),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -261,11 +263,21 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::WasPushed(_id) => {
+                self.ctx.assets.sfx.bonk.play();
+            }
+            ServerMessage::YouWasPushed(delta) => {
+                if let Some(me) = &mut self.me {
+                    me.pos += delta.extend(0.0);
+                    self.ctx.assets.sfx.bonk.play();
+                }
+            }
             ServerMessage::StartAttack(_new_pos, id) => {
                 self.attacks.insert(id);
             }
             ServerMessage::Dash(id) => {
                 self.attacks.remove(&id);
+                self.ctx.assets.sfx.dash.play();
             }
             ServerMessage::YouStartAttack(_) => {}
             ServerMessage::DashRestore => {
@@ -275,6 +287,7 @@ impl Game {
                 if let Some(me) = &mut self.me {
                     me.pos = new_pos;
                     self.attacking = false;
+                    self.ctx.assets.sfx.dash.play();
                 }
             }
             ServerMessage::JustRestarted => {
