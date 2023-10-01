@@ -43,6 +43,8 @@ pub struct SharkConfig {
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
+    pub push_distance_rem_k: f32,
+    pub collide_speed: f32,
     pub poop_cooldown: f32,
     pub gravity: f32,
     pub seagull_height: f32,

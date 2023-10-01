@@ -305,20 +305,23 @@ impl State {
                         .min_by_key(|(_, t)| r32(*t))
                     {
                         if t < dist {
+                            let push_distance = (dist - t)
+                                * (1.0 - self.config.push_distance_rem_k)
+                                + self.config.push_distance * self.config.push_distance_rem_k;
                             dist = t;
-                        }
-                        let delta = dir * self.config.push_distance;
-                        if let Some(sender) = self.senders.get_mut(&id) {
-                            sender.send(ServerMessage::YouWasPushed(delta));
-                            self.wait_for_teleport_ack.insert(id);
-                        }
-                        let player_pos = self.player_pos.get_mut(&id).unwrap();
-                        let damage_pos = pos.pos + dir.extend(0.0) * (t + 1.0);
-                        player_pos.pos += delta.extend(0.0);
-                        for (&other_id, other) in &mut self.senders {
-                            other.send(ServerMessage::Damage(damage_pos));
-                            if other_id != id {
-                                other.send(ServerMessage::WasPushed(id, *player_pos));
+                            let delta = dir * push_distance;
+                            if let Some(sender) = self.senders.get_mut(&id) {
+                                sender.send(ServerMessage::YouWasPushed(delta));
+                                self.wait_for_teleport_ack.insert(id);
+                            }
+                            let player_pos = self.player_pos.get_mut(&id).unwrap();
+                            let damage_pos = pos.pos + dir.extend(0.0) * (t + 1.0);
+                            player_pos.pos += delta.extend(0.0);
+                            for (&other_id, other) in &mut self.senders {
+                                other.send(ServerMessage::Damage(damage_pos));
+                                if other_id != id {
+                                    other.send(ServerMessage::WasPushed(id, *player_pos));
+                                }
                             }
                         }
                     }

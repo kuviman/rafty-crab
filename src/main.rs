@@ -529,6 +529,16 @@ impl Game {
             }
             me.pos += me.vel * delta_time;
 
+            for other in self.others.values() {
+                let delta = me.pos.xy() - other.pos.get().pos.xy();
+                if delta.len() < 2.0 {
+                    let pen = 2.0 - delta.len();
+                    me.pos += (delta.normalize_or_zero() * pen)
+                        .clamp_len(..=self.ctx.assets.config.collide_speed * delta_time)
+                        .extend(0.0);
+                }
+            }
+
             if let Some(pos) = self.ctx.geng.window().cursor_position() {
                 let ray = self
                     .camera
