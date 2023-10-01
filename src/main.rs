@@ -69,6 +69,9 @@ pub enum ServerMessage {
     Name(i64, String),
     Damage(vec3<f32>),
     UpdateGullPos { id: i64, pos: Pos },
+    YouCanPoopCongratualtions,
+    FlyingPoop(Pos),
+    PoopOnFloor(vec2<f32>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -79,6 +82,7 @@ pub enum ClientMessage {
     TeleportAck,
     Name(String),
     UpdateGullPos(Pos),
+    Poop,
 }
 
 #[derive(clap::Parser)]
@@ -182,6 +186,9 @@ impl Vfx {
 }
 
 pub struct Game {
+    can_poop: bool,
+    floor_poop: Vec<vec2<f32>>,
+    flying_poops: Vec<Pos>,
     names: HashMap<Id, String>,
     name: String,
     naming: bool,
@@ -210,6 +217,9 @@ impl Game {
         con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ) -> Self {
         Self {
+            floor_poop: default(),
+            flying_poops: default(),
+            can_poop: true,
             other_gulls: default(),
             names: default(),
             name: "".to_owned(),
@@ -270,6 +280,14 @@ impl Game {
                         self.name.pop();
                     }
                 }
+                geng::Event::KeyPress {
+                    key: geng::Key::Space,
+                }
+                | geng::Event::MousePress {
+                    button: geng::MouseButton::Left,
+                } if self.me.is_none() && self.can_poop => {
+                    self.con.send(ClientMessage::Poop);
+                }
                 geng::Event::MousePress {
                     button: geng::MouseButton::Left,
                 } if self.can_dash => {
@@ -309,6 +327,17 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::PoopOnFloor(pos) => {
+                self.floor_poop.push(pos);
+                self.ctx.assets.sfx.wet_fart.play();
+            }
+            ServerMessage::FlyingPoop(pos) => {
+                self.flying_poops.push(pos);
+                self.ctx.assets.sfx.dry_fart.play();
+            }
+            ServerMessage::YouCanPoopCongratualtions => {
+                self.can_poop = true;
+            }
             ServerMessage::UpdateGullPos { id, pos } => match self.other_gulls.entry(id) {
                 std::collections::hash_map::Entry::Occupied(mut other) => {
                     other.get_mut().pos.server_update(pos);
@@ -560,6 +589,12 @@ impl Game {
             vfx.t += delta_time;
         }
         self.vfx.retain(|vfx| vfx.t < vfx.max_t);
+
+        for poop in &mut self.flying_poops {
+            poop.vel.z -= self.ctx.assets.config.gravity * delta_time;
+            poop.pos += poop.vel * delta_time;
+        }
+        self.flying_poops.retain(|poop| poop.pos.z > 0.0);
     }
 
     fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos, attacking: bool) {
@@ -624,6 +659,14 @@ impl Game {
             if !self.others.contains_key(&id) {
                 self.draw_gull(framebuffer, other.pos.get());
             }
+        }
+        for poop in &self.flying_poops {
+            self.ctx.model_draw.draw(
+                framebuffer,
+                &self.camera,
+                &self.ctx.assets.falling_poop,
+                poop.transform(),
+            );
         }
 
         for (id, shark) in &self.sharks {

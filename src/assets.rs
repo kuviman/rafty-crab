@@ -43,6 +43,8 @@ pub struct SharkConfig {
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
+    pub poop_cooldown: f32,
+    pub gravity: f32,
     pub seagull_height: f32,
     pub attack_time: f32,
     pub dash_cooldown: f32,
@@ -85,6 +87,8 @@ pub struct Sfx {
     pub eating: geng::Sound,
     pub destroy: geng::Sound,
     pub splash: geng::Sound,
+    pub dry_fart: geng::Sound,
+    pub wet_fart: geng::Sound,
 }
 
 #[derive(geng::asset::Load)]

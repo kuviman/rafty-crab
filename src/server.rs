@@ -15,7 +15,9 @@ struct State {
     sharks: HashMap<Id, Shark>,
     restart_timer: Option<f32>,
     dash_cooldowns: HashMap<Id, f32>,
+    poop_cooldowns: HashMap<Id, f32>,
     wait_for_teleport_ack: HashSet<Id>,
+    flying_poops: Vec<Pos>,
 }
 
 fn intersect(from: vec2<f32>, dir: vec2<f32>, center: vec2<f32>, radius: f32) -> Option<f32> {
@@ -87,6 +89,8 @@ impl State {
     fn new(config: assets::Config) -> Self {
         let mut id_gen = IdGen { last_id: 0 };
         Self {
+            flying_poops: Vec::new(),
+            poop_cooldowns: default(),
             names: default(),
             wait_for_teleport_ack: default(),
             attacks: default(),
@@ -148,6 +152,19 @@ impl State {
     pub fn handle(&mut self, client: Id, message: ClientMessage) {
         let sender = self.senders.get_mut(&client).unwrap();
         match message {
+            ClientMessage::Poop => {
+                if self.poop_cooldowns.contains_key(&client) {
+                    return;
+                }
+                if let Some(&pos) = self.gull_pos.get(&client) {
+                    self.poop_cooldowns
+                        .insert(client, self.config.poop_cooldown);
+                    self.flying_poops.push(pos);
+                    for client in self.senders.values_mut() {
+                        client.send(ServerMessage::FlyingPoop(pos))
+                    }
+                }
+            }
             ClientMessage::Name(name) => {
                 for (&id, other) in &mut self.senders {
                     if id != client {
@@ -207,6 +224,17 @@ impl State {
             return;
         }
 
+        for poop in &mut self.flying_poops {
+            poop.vel.z -= self.config.gravity * delta_time;
+            poop.pos += poop.vel * delta_time;
+            if poop.pos.z <= 0.0 {
+                for sender in self.senders.values_mut() {
+                    sender.send(ServerMessage::PoopOnFloor(poop.pos.xy()));
+                }
+            }
+        }
+        self.flying_poops.retain(|poop| poop.pos.z > 0.0);
+
         for (client, pos) in self.player_pos.clone() {
             if Aabb2::ZERO
                 .extend_uniform(1)
@@ -240,6 +268,19 @@ impl State {
             } else {
                 if let Some(sender) = self.senders.get_mut(&client) {
                     sender.send(ServerMessage::DashRestore);
+                }
+                false
+            }
+        });
+        for time in self.poop_cooldowns.values_mut() {
+            *time -= delta_time;
+        }
+        self.poop_cooldowns.retain(|&client, &mut time| {
+            if time > 0.0 {
+                true
+            } else {
+                if let Some(sender) = self.senders.get_mut(&client) {
+                    sender.send(ServerMessage::YouCanPoopCongratualtions);
                 }
                 false
             }
