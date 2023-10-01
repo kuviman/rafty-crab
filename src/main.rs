@@ -286,6 +286,7 @@ impl Game {
                 | geng::Event::MousePress {
                     button: geng::MouseButton::Left,
                 } if self.me.is_none() && self.can_poop => {
+                    self.can_poop = false;
                     self.con.send(ClientMessage::Poop);
                 }
                 geng::Event::MousePress {
@@ -698,7 +699,6 @@ impl Game {
         } else {
             self.draw_gull(framebuffer, self.me_gull);
             if self.can_poop {
-                self.can_poop = false;
                 self.ctx.model_draw.draw(
                     framebuffer,
                     &self.camera,
