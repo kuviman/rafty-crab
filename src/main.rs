@@ -373,6 +373,7 @@ impl Game {
                 self.con.send(ClientMessage::TeleportAck);
                 if let Some(me) = &mut self.me {
                     me.pos += delta.extend(0.0);
+                    me.vel = delta.extend(0.0);
                     self.ctx.assets.sfx.bonk.play();
 
                     self.vfx
@@ -406,6 +407,7 @@ impl Game {
                 if let Some(me) = &mut self.me {
                     let old_pos = me.pos;
                     me.pos = new_pos;
+                    me.vel = new_pos - old_pos;
                     self.attacking = false;
                     self.ctx.assets.sfx.dash.play();
                     self.vfx.push(Vfx::new_rot(
@@ -533,6 +535,7 @@ impl Game {
                 .copied()
                 .any(|poop| (poop - me.pos.xy()).len() < 3.0);
             if on_poop {
+                me.vel = me.vel.normalize_or_zero() * self.ctx.assets.config.slide_speed;
             } else if self.attacking {
                 me.vel = vec3::ZERO;
             } else {

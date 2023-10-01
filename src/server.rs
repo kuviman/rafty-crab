@@ -337,6 +337,7 @@ impl State {
                         sender.send(ServerMessage::YouDash(new_pos));
                         self.wait_for_teleport_ack.insert(client);
                         self.player_pos.get_mut(&client).unwrap().pos = new_pos;
+                        self.player_pos.get_mut(&client).unwrap().vel = dir.extend(0.0);
                         self.dash_cooldowns
                             .insert(client, self.config.dash_cooldown);
                         for (&id, other) in &mut self.senders {
