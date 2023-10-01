@@ -687,8 +687,25 @@ impl Game {
 
         if let Some(me) = &self.me {
             self.draw_crab(framebuffer, *me, self.attacking);
+            if self.can_dash {
+                self.ctx.model_draw.draw(
+                    framebuffer,
+                    &self.camera,
+                    &self.ctx.assets.dash_arrow,
+                    me.transform() * mat4::translate(vec3(0.0, 1.0, 0.55)),
+                );
+            }
         } else {
             self.draw_gull(framebuffer, self.me_gull);
+            if self.can_poop {
+                self.can_poop = false;
+                self.ctx.model_draw.draw(
+                    framebuffer,
+                    &self.camera,
+                    &self.ctx.assets.cross,
+                    mat4::translate(self.me_gull.pos.xy().extend(0.55)),
+                );
+            }
         }
         for (&id, other) in &self.others {
             self.draw_crab(framebuffer, other.pos.get(), self.attacks.contains(&id));

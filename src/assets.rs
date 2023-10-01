@@ -110,4 +110,6 @@ pub struct Assets {
     pub falling_poop: pog_paint::Model,
     pub poop: pog_paint::Model,
     pub seagull: pog_paint::Model,
+    pub cross: pog_paint::Model,
+    pub dash_arrow: pog_paint::Model,
 }

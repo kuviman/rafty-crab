@@ -159,6 +159,8 @@ impl State {
                 if let Some(&pos) = self.gull_pos.get(&client) {
                     self.poop_cooldowns
                         .insert(client, self.config.poop_cooldown);
+                    let mut pos = pos;
+                    pos.vel = vec3::ZERO;
                     self.flying_poops.push(pos);
                     for client in self.senders.values_mut() {
                         client.send(ServerMessage::FlyingPoop(pos))
