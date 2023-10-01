@@ -17,6 +17,7 @@ gravity = 10
 poop_cooldown = 5
 collide_speed = 2
 slide_speed = 8
+music_volume = 0.5
 
 [shark]
 count = 3

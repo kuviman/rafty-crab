@@ -109,6 +109,9 @@ impl Ctx {
             .load(run_dir().join("assets"))
             .await
             .unwrap();
+        let mut music = assets.music.effect();
+        music.set_volume(assets.config.music_volume);
+        music.play();
         Self {
             geng: geng.clone(),
             model_draw: Rc::new(ModelDraw::new(geng, &assets)),

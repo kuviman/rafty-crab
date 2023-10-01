@@ -43,6 +43,7 @@ pub struct SharkConfig {
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
+    pub music_volume: f64,
     pub slide_speed: f32,
     pub push_distance_rem_k: f32,
     pub collide_speed: f32,
@@ -112,4 +113,6 @@ pub struct Assets {
     pub seagull: pog_paint::Model,
     pub cross: pog_paint::Model,
     pub dash_arrow: pog_paint::Model,
+    #[load(ext = "mp3", options(looped = "true"))]
+    pub music: geng::Sound,
 }
