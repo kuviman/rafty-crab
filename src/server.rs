@@ -13,6 +13,7 @@ struct State {
     sharks: HashMap<Id, Shark>,
     restart_timer: Option<f32>,
     dash_cooldowns: HashMap<Id, f32>,
+    wait_for_teleport_ack: HashSet<Id>,
 }
 
 fn intersect(from: vec2<f32>, dir: vec2<f32>, center: vec2<f32>, radius: f32) -> Option<f32> {
@@ -82,6 +83,7 @@ impl State {
     fn new(config: assets::Config) -> Self {
         let mut id_gen = IdGen { last_id: 0 };
         Self {
+            wait_for_teleport_ack: default(),
             attacks: default(),
             dash_cooldowns: default(),
             restart_timer: None,
@@ -149,7 +151,13 @@ impl State {
                     }
                 }
             }
+            ClientMessage::TeleportAck => {
+                self.wait_for_teleport_ack.remove(&client);
+            }
             ClientMessage::UpdatePos(pos) => {
+                if self.wait_for_teleport_ack.contains(&client) {
+                    return;
+                }
                 if let std::collections::hash_map::Entry::Occupied(mut e) =
                     self.player_pos.entry(client)
                 {
@@ -228,6 +236,7 @@ impl State {
                         let delta = dir * self.config.push_distance;
                         if let Some(sender) = self.senders.get_mut(&id) {
                             sender.send(ServerMessage::YouWasPushed(delta));
+                            self.wait_for_teleport_ack.insert(id);
                         }
                         let player_pos = self.player_pos.get_mut(&id).unwrap();
                         player_pos.pos += delta.extend(0.0);
@@ -241,6 +250,7 @@ impl State {
 
                     if let Some(sender) = self.senders.get_mut(&client) {
                         sender.send(ServerMessage::YouDash(new_pos));
+                        self.wait_for_teleport_ack.insert(client);
                         self.player_pos.get_mut(&client).unwrap().pos = new_pos;
                         self.dash_cooldowns
                             .insert(client, self.config.dash_cooldown);

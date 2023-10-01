@@ -73,6 +73,7 @@ pub enum ClientMessage {
     Pig,
     UpdatePos(Pos),
     Attack(vec3<f32>),
+    TeleportAck,
 }
 
 #[derive(clap::Parser)]
@@ -176,6 +177,7 @@ impl Vfx {
 }
 
 pub struct Game {
+    naming: bool,
     attacks: HashSet<Id>,
     attacking: bool,
     can_dash: bool,
@@ -199,6 +201,7 @@ impl Game {
         con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ) -> Self {
         Self {
+            naming: true,
             attacks: default(),
             attacking: false,
             can_dash: true,
@@ -274,6 +277,7 @@ impl Game {
                 }
             }
             ServerMessage::YouWasPushed(delta) => {
+                self.con.send(ClientMessage::TeleportAck);
                 if let Some(me) = &mut self.me {
                     me.pos += delta.extend(0.0);
                     self.ctx.assets.sfx.bonk.play();
@@ -302,6 +306,7 @@ impl Game {
                 self.can_dash = true;
             }
             ServerMessage::YouDash(new_pos) => {
+                self.con.send(ClientMessage::TeleportAck);
                 if let Some(me) = &mut self.me {
                     let old_pos = me.pos;
                     me.pos = new_pos;
