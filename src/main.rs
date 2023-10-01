@@ -563,6 +563,7 @@ impl Game {
     }
 
     fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos, attacking: bool) {
+        let winner = self.others.len() + self.me.is_some() as usize == 1;
         let mut transform = pos.transform()
             * mat4::translate(
                 vec3::UNIT_Z
@@ -570,6 +571,8 @@ impl Game {
             );
         if attacking {
             transform *= mat4::rotate_y(-Angle::from_degrees(40.0));
+        } else if winner {
+            transform *= mat4::translate(vec3(0.0, 0.0, (self.time * 10.0).sin().abs() * 0.5));
         }
         self.ctx.model_draw.draw(
             framebuffer,
