@@ -43,6 +43,7 @@ pub struct SharkConfig {
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
+    pub seagull_height: f32,
     pub attack_time: f32,
     pub dash_cooldown: f32,
     pub dash_distance: f32,
@@ -56,6 +57,9 @@ pub struct Config {
     pub camera: CameraConfig,
     pub crab_animation: CrabAnimation,
     pub wave: WaveConfig,
+    pub limit: f32,
+    pub seagull_speed: f32,
+    pub seagull_rotate_speed: f32,
 
     pub raft_size: i32,
     pub shark: SharkConfig,
@@ -95,4 +99,7 @@ pub struct Assets {
     pub destroy: Rc<pog_paint::Model>,
     pub raft_tile: pog_paint::Model,
     pub damage: Rc<pog_paint::Model>,
+    pub falling_poop: pog_paint::Model,
+    pub poop: pog_paint::Model,
+    pub seagull: pog_paint::Model,
 }

@@ -9,6 +9,7 @@ struct State {
     config: assets::Config,
     id_gen: IdGen,
     player_pos: HashMap<Id, Pos>,
+    gull_pos: HashMap<Id, Pos>,
     raft: HashSet<vec2<i32>>,
     senders: HashMap<Id, Box<dyn geng::net::Sender<ServerMessage>>>,
     sharks: HashMap<Id, Shark>,
@@ -95,6 +96,7 @@ impl State {
             senders: default(),
             raft: default(),
             should_exit: false,
+            gull_pos: default(),
             sharks: (0..config.shark.count)
                 .map(|_| {
                     let pos = thread_rng()
@@ -140,6 +142,7 @@ impl State {
         for sender in self.senders.values_mut() {
             sender.send(ServerMessage::PlayerLeft { id: client });
         }
+        self.gull_pos.remove(&client);
         self.names.remove(&client);
     }
     pub fn handle(&mut self, client: Id, message: ClientMessage) {
@@ -170,6 +173,9 @@ impl State {
             ClientMessage::TeleportAck => {
                 self.wait_for_teleport_ack.remove(&client);
             }
+            ClientMessage::UpdateGullPos(pos) => {
+                self.gull_pos.insert(client, pos);
+            }
             ClientMessage::UpdatePos(pos) => {
                 if self.wait_for_teleport_ack.contains(&client) {
                     return;
@@ -178,25 +184,6 @@ impl State {
                     self.player_pos.entry(client)
                 {
                     e.insert(pos);
-                    if Aabb2::ZERO
-                        .extend_uniform(1)
-                        .extend_positive(vec2::splat(1))
-                        .points()
-                        .all(|p| {
-                            let tile = (pos.pos.xy() + p.map(|x| x as f32))
-                                .map(|x| (x / self.config.tile_size).round() as i32);
-                            !self.raft.contains(&tile)
-                        })
-                    {
-                        self.player_pos.remove(&client);
-                        sender.send(ServerMessage::YouDrown);
-                        for (&id, other) in &mut self.senders {
-                            if id == client {
-                                continue;
-                            }
-                            other.send(ServerMessage::PlayerDrown(client));
-                        }
-                    }
                 }
             }
             ClientMessage::Pig => {
@@ -204,6 +191,11 @@ impl State {
                 for (&id, &pos) in &self.player_pos {
                     if id != client {
                         sender.send(ServerMessage::UpdatePos { id, pos });
+                    }
+                }
+                for (&id, &pos) in &self.gull_pos {
+                    if id != client {
+                        sender.send(ServerMessage::UpdateGullPos { id, pos });
                     }
                 }
                 sender.send(ServerMessage::UpdateSharks(self.sharks.clone()));
@@ -214,6 +206,31 @@ impl State {
         if self.senders.is_empty() {
             return;
         }
+
+        for (client, pos) in self.player_pos.clone() {
+            if Aabb2::ZERO
+                .extend_uniform(1)
+                .extend_positive(vec2::splat(1))
+                .points()
+                .all(|p| {
+                    let tile = (pos.pos.xy() + p.map(|x| x as f32))
+                        .map(|x| (x / self.config.tile_size).round() as i32);
+                    !self.raft.contains(&tile)
+                })
+            {
+                self.player_pos.remove(&client);
+                if let Some(sender) = self.senders.get_mut(&client) {
+                    sender.send(ServerMessage::YouDrown);
+                }
+                for (&id, other) in &mut self.senders {
+                    if id == client {
+                        continue;
+                    }
+                    other.send(ServerMessage::PlayerDrown(client));
+                }
+            }
+        }
+
         for time in self.dash_cooldowns.values_mut() {
             *time -= delta_time;
         }

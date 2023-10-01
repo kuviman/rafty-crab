@@ -68,6 +68,7 @@ pub enum ServerMessage {
     WasPushed(i64, Pos),
     Name(i64, String),
     Damage(vec3<f32>),
+    UpdateGullPos { id: i64, pos: Pos },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -77,6 +78,7 @@ pub enum ClientMessage {
     Attack(vec3<f32>),
     TeleportAck,
     Name(String),
+    UpdateGullPos(Pos),
 }
 
 #[derive(clap::Parser)]
@@ -190,11 +192,13 @@ pub struct Game {
     con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ctx: Ctx,
     me: Option<Pos>,
+    me_gull: Pos,
     camera: Camera,
     framebuffer_size: vec2<f32>,
     time: f32,
     wave_dir: vec2<f32>,
     others: HashMap<Id, OtherPlayer>,
+    other_gulls: HashMap<Id, OtherPlayer>,
     raft: HashSet<vec2<i32>>,
     sharks: HashMap<Id, InterpolatedShark>,
     vfx: Vec<Vfx>,
@@ -206,9 +210,22 @@ impl Game {
         con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ) -> Self {
         Self {
+            other_gulls: default(),
             names: default(),
             name: "".to_owned(),
             naming: true,
+            me_gull: Pos {
+                pos: thread_rng()
+                    .gen_circle(
+                        vec2::ZERO,
+                        ctx.assets.config.raft_size as f32 * ctx.assets.config.tile_size,
+                    )
+                    .extend(ctx.assets.config.seagull_height),
+                rot: thread_rng().gen(),
+                vel: vec2(ctx.assets.config.seagull_speed, 0.0)
+                    .rotate(thread_rng().gen())
+                    .extend(0.0),
+            },
             attacks: default(),
             attacking: false,
             can_dash: true,
@@ -292,8 +309,19 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::UpdateGullPos { id, pos } => match self.other_gulls.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut other) => {
+                    other.get_mut().pos.server_update(pos);
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(OtherPlayer {
+                        pos: InterpolatedPos::new(pos),
+                    });
+                }
+            },
             ServerMessage::Damage(pos) => {
-                self.vfx.push(Vfx::new(&self.ctx.assets.damage, pos));
+                self.vfx
+                    .push(Vfx::new(&self.ctx.assets.damage, pos + vec3(0.0, 0.0, 1.2)));
             }
             ServerMessage::Name(id, name) => {
                 self.names.insert(id, name);
@@ -406,6 +434,8 @@ impl Game {
                 self.con.send(ClientMessage::Pig);
                 if let Some(me) = &self.me {
                     self.con.send(ClientMessage::UpdatePos(me.clone()));
+                } else {
+                    self.con.send(ClientMessage::UpdateGullPos(self.me_gull));
                 }
             }
             ServerMessage::UpdateRaft(raft) => {
@@ -482,18 +512,48 @@ impl Game {
                     }
                 }
             }
+        } else {
+            if self.me_gull.pos.xy().len() > self.ctx.assets.config.limit {
+                self.me_gull.rot -=
+                    Angle::from_degrees(self.ctx.assets.config.seagull_rotate_speed)
+                        * delta_time
+                        * vec2::skew(self.me_gull.vel.xy(), self.me_gull.pos.xy()).signum();
+            } else {
+                if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowLeft)
+                    || self.ctx.geng.window().is_key_pressed(geng::Key::A)
+                {
+                    self.me_gull.rot +=
+                        Angle::from_degrees(self.ctx.assets.config.seagull_rotate_speed)
+                            * delta_time;
+                }
 
-            let delta = me.pos.xy() - self.camera.pos.xy();
-            self.camera.pos += (delta * self.ctx.assets.config.camera.speed * delta_time)
-                .clamp_len(..=delta.len())
+                if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowRight)
+                    || self.ctx.geng.window().is_key_pressed(geng::Key::D)
+                {
+                    self.me_gull.rot -=
+                        Angle::from_degrees(self.ctx.assets.config.seagull_rotate_speed)
+                            * delta_time;
+                }
+            }
+            self.me_gull.vel = vec2(self.ctx.assets.config.seagull_speed, 0.0)
+                .rotate(self.me_gull.rot)
                 .extend(0.0);
+            self.me_gull.pos += self.me_gull.vel * delta_time;
         }
+
+        let target_pos = self.me.unwrap_or(self.me_gull).pos;
+        let delta = target_pos - self.camera.pos;
+        self.camera.pos +=
+            (delta * self.ctx.assets.config.camera.speed * delta_time).clamp_len(..=delta.len());
 
         for other in self.others.values_mut() {
             other.pos.update(delta_time);
         }
         for shark in self.sharks.values_mut() {
             shark.update(delta_time);
+        }
+        for other in self.other_gulls.values_mut() {
+            other.pos.update(delta_time);
         }
 
         for vfx in &mut self.vfx {
@@ -530,6 +590,16 @@ impl Game {
         );
     }
 
+    fn draw_gull(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos) {
+        let transform = pos.transform();
+        self.ctx.model_draw.draw(
+            framebuffer,
+            &self.camera,
+            &self.ctx.assets.seagull,
+            transform,
+        );
+    }
+
     fn draw(&mut self, framebuffer: &mut ugli::Framebuffer) {
         self.framebuffer_size = framebuffer.size().map(|x| x as f32);
         ugli::clear(
@@ -540,10 +610,17 @@ impl Game {
         );
 
         if let Some(me) = &self.me {
-            self.draw_crab(framebuffer, me.clone(), self.attacking);
+            self.draw_crab(framebuffer, *me, self.attacking);
+        } else {
+            self.draw_gull(framebuffer, self.me_gull);
         }
         for (&id, other) in &self.others {
             self.draw_crab(framebuffer, other.pos.get(), self.attacks.contains(&id));
+        }
+        for (&id, other) in &self.other_gulls {
+            if !self.others.contains_key(&id) {
+                self.draw_gull(framebuffer, other.pos.get());
+            }
         }
 
         for (id, shark) in &self.sharks {
@@ -595,7 +672,7 @@ impl Game {
         }
 
         // water
-        let transform = mat4::translate(self.camera.pos)
+        let transform = mat4::translate(self.camera.pos.xy().extend(0.0))
             * mat4::translate(vec3(0.0, 0.0, self.ctx.assets.config.water.z))
             * mat4::scale_uniform(1000.0)
             * mat4::translate(vec2::splat(-0.5).extend(0.0));
@@ -642,11 +719,9 @@ impl Game {
                 Rgba::BLACK,
             );
         } else {
-            if let Some(me) = &self.me {
-                self.draw_name(framebuffer, &self.name, *me);
-            }
-            for (&id, other) in &self.others {
-                if let Some(name) = self.names.get(&id) {
+            self.draw_name(framebuffer, &self.name, self.me.unwrap_or(self.me_gull));
+            for (&id, name) in &self.names {
+                if let Some(other) = self.others.get(&id).or(self.other_gulls.get(&id)) {
                     self.draw_name(framebuffer, name, other.pos.get());
                 }
             }

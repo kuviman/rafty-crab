@@ -8,6 +8,10 @@ dash_distance = 5
 dash_cooldown = 1
 attack_time = 1
 push_distance = 5
+seagull_height = 5
+seagull_speed = 8
+seagull_rotate_speed = 90
+limit = 15
 
 [shark]
 count = 3
