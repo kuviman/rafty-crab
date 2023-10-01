@@ -358,8 +358,15 @@ impl Game {
             ServerMessage::WasPushed(id, new_pos) => {
                 self.ctx.assets.sfx.bonk.play();
                 if let Some(other) = self.others.get_mut(&id) {
+                    let old_pos = other.pos.get().pos;
                     other.pos.server_update(new_pos);
                     other.pos.update(1.0);
+
+                    self.vfx.push(Vfx::new_rot(
+                        &self.ctx.assets.push,
+                        new_pos.pos,
+                        (new_pos.pos - old_pos).xy().arg(),
+                    ));
                 }
             }
             ServerMessage::YouWasPushed(delta) => {
@@ -367,6 +374,9 @@ impl Game {
                 if let Some(me) = &mut self.me {
                     me.pos += delta.extend(0.0);
                     self.ctx.assets.sfx.bonk.play();
+
+                    self.vfx
+                        .push(Vfx::new_rot(&self.ctx.assets.push, me.pos, delta.arg()));
                 }
             }
             ServerMessage::StartAttack(_new_pos, id) => {

@@ -105,6 +105,7 @@ pub struct Assets {
     pub destroy: Rc<pog_paint::Model>,
     pub raft_tile: pog_paint::Model,
     pub damage: Rc<pog_paint::Model>,
+    pub push: Rc<pog_paint::Model>,
     pub falling_poop: pog_paint::Model,
     pub poop: pog_paint::Model,
     pub seagull: pog_paint::Model,
