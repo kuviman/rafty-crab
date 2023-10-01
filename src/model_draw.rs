@@ -3,6 +3,7 @@ use super::*;
 pub struct ModelDraw {
     geng: Geng,
     assets: Rc<Assets>,
+    white_texture: ugli::Texture,
     pub quad: ugli::VertexBuffer<Vertex>,
 }
 
@@ -17,6 +18,7 @@ impl ModelDraw {
         Self {
             geng: geng.clone(),
             assets: assets.clone(),
+            white_texture: ugli::Texture::new_with(geng.ugli(), vec2(1, 1), |_| Rgba::WHITE),
             quad: ugli::VertexBuffer::new_static(
                 geng.ugli(),
                 vec![
@@ -40,12 +42,32 @@ impl ModelDraw {
             ),
         }
     }
+
     pub fn draw(
         &self,
         framebuffer: &mut ugli::Framebuffer,
         camera: &impl AbstractCamera3d,
         model: &pog_paint::Model,
         transform: mat4<f32>,
+    ) {
+        self.draw_masked(
+            framebuffer,
+            camera,
+            model,
+            transform,
+            &self.white_texture,
+            mat3::identity(),
+        );
+    }
+
+    pub fn draw_masked(
+        &self,
+        framebuffer: &mut ugli::Framebuffer,
+        camera: &impl AbstractCamera3d,
+        model: &pog_paint::Model,
+        transform: mat4<f32>,
+        mask: &ugli::Texture,
+        mask_transform: mat3<f32>,
     ) {
         let transform = transform
             * mat4::scale_uniform(1.0 / self.assets.config.scaling)
@@ -66,6 +88,8 @@ impl ModelDraw {
                         ugli::uniforms! {
                             u_texture: texture,
                             u_model_matrix: model_matrix,
+                            u_mask: mask,
+                            u_mask_matrix: mask_transform,
                         },
                         camera.uniforms(framebuffer_size),
                     ),

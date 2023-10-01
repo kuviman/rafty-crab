@@ -418,6 +418,7 @@ impl Game {
             ServerMessage::JustRestarted => {
                 self.shark_attacks.clear();
                 self.attacks.clear();
+                self.floor_poop.clear();
             }
             ServerMessage::Destroy(shark, tile) => {
                 self.shark_attacks.remove(&shark);
@@ -526,7 +527,13 @@ impl Game {
                 .rotate(self.camera.rot)
                 .rotate(-me.rot);
 
-            if self.attacking {
+            let on_poop = self
+                .floor_poop
+                .iter()
+                .copied()
+                .any(|poop| (poop - me.pos.xy()).len() < 3.0);
+            if on_poop {
+            } else if self.attacking {
                 me.vel = vec3::ZERO;
             } else {
                 me.vel = (mov
@@ -620,6 +627,11 @@ impl Game {
 
     fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos, attacking: bool) {
         let winner = self.others.len() + self.me.is_some() as usize == 1;
+        let on_poop = self
+            .floor_poop
+            .iter()
+            .copied()
+            .any(|poop| (poop - pos.pos.xy()).len() < 3.0);
         let mut transform = pos.transform()
             * mat4::translate(
                 vec3::UNIT_Z
@@ -636,16 +648,18 @@ impl Game {
             &self.ctx.assets.crab.body,
             transform,
         );
+        if !on_poop {
+            transform *= mat4::rotate_z(Angle::from_degrees(
+                (self.time * self.ctx.assets.config.crab_animation.legs_freq).sin()
+                    * self.ctx.assets.config.crab_animation.legs_amp
+                    * (pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
+            ));
+        }
         self.ctx.model_draw.draw(
             framebuffer,
             &self.camera,
             &self.ctx.assets.crab.legs,
-            transform
-                * mat4::rotate_z(Angle::from_degrees(
-                    (self.time * self.ctx.assets.config.crab_animation.legs_freq).sin()
-                        * self.ctx.assets.config.crab_animation.legs_amp
-                        * (pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
-                )),
+            transform,
         );
     }
 
@@ -724,6 +738,37 @@ impl Game {
                     (tile.map(|x| x as f32) * self.ctx.assets.config.tile_size).extend(0.0),
                 ) * self.tile_transform(tile),
             );
+        }
+
+        if let Some(bb) = Aabb2::points_bounding_box(self.raft.iter().copied()) {
+            let bb = bb.extend_uniform(1);
+            let mut raft_texture = ugli::Texture::new_with(
+                self.ctx.geng.ugli(),
+                bb.size().map(|x| x as usize + 1),
+                |pos| {
+                    if self
+                        .raft
+                        .contains(&(pos.map(|x| x as i32) + bb.bottom_left()))
+                    {
+                        Rgba::WHITE
+                    } else {
+                        Rgba::TRANSPARENT_BLACK
+                    }
+                },
+            );
+            raft_texture.set_filter(ugli::Filter::Nearest);
+            for poop in &self.floor_poop {
+                self.ctx.model_draw.draw_masked(
+                    framebuffer,
+                    &self.camera,
+                    &self.ctx.assets.poop,
+                    mat4::translate(poop.extend(0.5)),
+                    &raft_texture,
+                    mat3::scale(raft_texture.size().map(|x| 1.0 / x as f32))
+                        * mat3::translate(-bb.bottom_left().map(|x| x as f32 - 0.5))
+                        * mat3::scale_uniform(1.0 / self.ctx.assets.config.tile_size),
+                );
+            }
         }
 
         // vfx

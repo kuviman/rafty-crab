@@ -228,8 +228,14 @@ impl State {
             poop.vel.z -= self.config.gravity * delta_time;
             poop.pos += poop.vel * delta_time;
             if poop.pos.z <= 0.0 {
-                for sender in self.senders.values_mut() {
-                    sender.send(ServerMessage::PoopOnFloor(poop.pos.xy()));
+                let tile = poop
+                    .pos
+                    .xy()
+                    .map(|x| (x / self.config.tile_size).round() as i32);
+                if self.raft.contains(&tile) {
+                    for sender in self.senders.values_mut() {
+                        sender.send(ServerMessage::PoopOnFloor(poop.pos.xy()));
+                    }
                 }
             }
         }
