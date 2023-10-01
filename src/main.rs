@@ -692,7 +692,7 @@ impl Game {
                     framebuffer,
                     &self.camera,
                     &self.ctx.assets.dash_arrow,
-                    me.transform() * mat4::translate(vec3(0.0, 1.0, 0.55)),
+                    me.transform() * mat4::translate(vec3(1.0, 0.0, 0.55)),
                 );
             }
         } else {
