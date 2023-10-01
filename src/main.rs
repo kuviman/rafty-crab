@@ -59,12 +59,18 @@ pub enum ServerMessage {
     Destroy(Id, vec2<i32>),
     AboutToDestroy(i64, vec2<i32>),
     JustRestarted,
+    YouDash(vec3<f32>),
+    DashRestore,
+    YouStartAttack(vec3<f32>),
+    StartAttack(vec3<f32>, i64),
+    Dash(i64),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClientMessage {
     Pig,
     UpdatePos(Pos),
+    Attack(vec3<f32>),
 }
 
 #[derive(clap::Parser)]
@@ -165,6 +171,9 @@ impl Vfx {
 }
 
 pub struct Game {
+    attacks: HashSet<Id>,
+    attacking: bool,
+    can_dash: bool,
     shark_attacks: HashMap<Id, vec2<i32>>,
     con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ctx: Ctx,
@@ -185,6 +194,9 @@ impl Game {
         con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ) -> Self {
         Self {
+            attacks: default(),
+            attacking: false,
+            can_dash: true,
             shark_attacks: default(),
             con,
             ctx: ctx.clone(),
@@ -210,6 +222,25 @@ impl Game {
         let mut timer = Timer::new();
         while let Some(event) = events.next().await {
             match event {
+                geng::Event::MousePress {
+                    button: geng::MouseButton::Left,
+                } if self.can_dash => {
+                    if let Some(pos) = self.ctx.geng.window().cursor_position() {
+                        let ray = self
+                            .camera
+                            .pixel_ray(self.framebuffer_size, pos.map(|x| x as f32));
+                        if ray.dir.z < -1e-5 {
+                            let t = -ray.from.z / ray.dir.z;
+                            let ground_pos = ray.from + ray.dir * t;
+
+                            if let Some(me) = &self.me {
+                                self.con.send(ClientMessage::Attack(ground_pos));
+                                self.attacking = true;
+                                self.can_dash = false;
+                            }
+                        }
+                    }
+                }
                 geng::Event::Draw => {
                     self.update(timer.tick());
                     self.ctx
@@ -230,8 +261,25 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::StartAttack(_new_pos, id) => {
+                self.attacks.insert(id);
+            }
+            ServerMessage::Dash(id) => {
+                self.attacks.remove(&id);
+            }
+            ServerMessage::YouStartAttack(_) => {}
+            ServerMessage::DashRestore => {
+                self.can_dash = true;
+            }
+            ServerMessage::YouDash(new_pos) => {
+                if let Some(me) = &mut self.me {
+                    me.pos = new_pos;
+                    self.attacking = false;
+                }
+            }
             ServerMessage::JustRestarted => {
                 self.shark_attacks.clear();
+                self.attacks.clear();
             }
             ServerMessage::Destroy(shark, tile) => {
                 self.shark_attacks.remove(&shark);
@@ -265,6 +313,8 @@ impl Game {
             }
             ServerMessage::YouSpawn(spawn) => {
                 self.me = Some(spawn.pos);
+                self.attacking = false;
+                self.can_dash = true;
             }
             ServerMessage::PlayerSpawn { id, pos } => {
                 self.others.insert(
@@ -273,6 +323,7 @@ impl Game {
                         pos: InterpolatedPos::new(pos),
                     },
                 );
+                self.attacks.remove(&id);
             }
             ServerMessage::UpdatePos { id, pos } => {
                 self.others.get_mut(&id).unwrap().pos.server_update(pos);
@@ -333,13 +384,18 @@ impl Game {
                 .clamp_len(..=1.0)
                 .rotate(self.camera.rot)
                 .rotate(-me.rot);
-            me.vel = (mov
-                * vec2(
-                    self.ctx.assets.config.forward_speed,
-                    self.ctx.assets.config.side_speed,
-                ))
-            .rotate(me.rot)
-            .extend(0.0);
+
+            if self.attacking {
+                me.vel = vec3::ZERO;
+            } else {
+                me.vel = (mov
+                    * vec2(
+                        self.ctx.assets.config.forward_speed,
+                        self.ctx.assets.config.side_speed,
+                    ))
+                .rotate(me.rot)
+                .extend(0.0);
+            }
             me.pos += me.vel * delta_time;
 
             if let Some(pos) = self.ctx.geng.window().cursor_position() {
@@ -350,7 +406,9 @@ impl Game {
                     let t = -ray.from.z / ray.dir.z;
                     let ground_pos = ray.from + ray.dir * t;
                     let delta_pos = ground_pos - me.pos;
-                    me.rot = delta_pos.xy().arg();
+                    if !self.attacking {
+                        me.rot = delta_pos.xy().arg();
+                    }
                 }
             }
 
@@ -373,12 +431,15 @@ impl Game {
         self.vfx.retain(|vfx| vfx.t < vfx.max_t);
     }
 
-    fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos) {
-        let transform = pos.transform()
+    fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos, attacking: bool) {
+        let mut transform = pos.transform()
             * mat4::translate(
                 vec3::UNIT_Z
                     * (/*self.height_at(pos.pos.xy()) +*/self.ctx.assets.config.crab_animation.z),
             );
+        if attacking {
+            transform *= mat4::rotate_y(-Angle::from_degrees(40.0));
+        }
         self.ctx.model_draw.draw(
             framebuffer,
             &self.camera,
@@ -408,10 +469,10 @@ impl Game {
         );
 
         if let Some(me) = &self.me {
-            self.draw_crab(framebuffer, me.clone());
+            self.draw_crab(framebuffer, me.clone(), self.attacking);
         }
-        for other in self.others.values() {
-            self.draw_crab(framebuffer, other.pos.get());
+        for (&id, other) in &self.others {
+            self.draw_crab(framebuffer, other.pos.get(), self.attacks.contains(&id));
         }
 
         for (id, shark) in &self.sharks {

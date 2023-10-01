@@ -1,6 +1,9 @@
+use geng::net::Server;
+
 use super::*;
 
 struct State {
+    attacks: HashMap<Id, (vec3<f32>, f32)>,
     should_exit: bool,
     config: assets::Config,
     id_gen: IdGen,
@@ -9,6 +12,7 @@ struct State {
     senders: HashMap<Id, Box<dyn geng::net::Sender<ServerMessage>>>,
     sharks: HashMap<Id, Shark>,
     restart_timer: Option<f32>,
+    dash_cooldowns: HashMap<Id, f32>,
 }
 
 struct IdGen {
@@ -62,6 +66,8 @@ impl State {
     fn new(config: assets::Config) -> Self {
         let mut id_gen = IdGen { last_id: 0 };
         Self {
+            attacks: default(),
+            dash_cooldowns: default(),
             restart_timer: None,
             player_pos: default(),
             senders: default(),
@@ -113,6 +119,22 @@ impl State {
     pub fn handle(&mut self, client: Id, message: ClientMessage) {
         let sender = self.senders.get_mut(&client).unwrap();
         match message {
+            ClientMessage::Attack(target) => {
+                if !self.dash_cooldowns.contains_key(&client) {
+                    if let Some(pos) = &self.player_pos.get(&client) {
+                        let dir = (target - pos.pos).xy().normalize_or_zero();
+                        let new_pos = pos.pos + dir.extend(0.0) * self.config.dash_distance;
+                        self.attacks
+                            .insert(client, (new_pos, self.config.attack_time));
+                        sender.send(ServerMessage::YouStartAttack(new_pos));
+                        for (&id, other) in &mut self.senders {
+                            if id != client {
+                                other.send(ServerMessage::StartAttack(new_pos, client));
+                            }
+                        }
+                    }
+                }
+            }
             ClientMessage::UpdatePos(pos) => {
                 if let std::collections::hash_map::Entry::Occupied(mut e) =
                     self.player_pos.entry(client)
@@ -154,6 +176,41 @@ impl State {
         if self.senders.is_empty() {
             return;
         }
+        for time in self.dash_cooldowns.values_mut() {
+            *time -= delta_time;
+        }
+        self.dash_cooldowns.retain(|&client, &mut time| {
+            if time > 0.0 {
+                true
+            } else {
+                if let Some(sender) = self.senders.get_mut(&client) {
+                    sender.send(ServerMessage::DashRestore);
+                }
+                false
+            }
+        });
+
+        for (_, time) in self.attacks.values_mut() {
+            *time -= delta_time;
+        }
+        self.attacks.retain(|&client, &mut (new_pos, time)| {
+            if time > 0.0 {
+                true
+            } else {
+                if let Some(sender) = self.senders.get_mut(&client) {
+                    sender.send(ServerMessage::YouDash(new_pos));
+                    self.dash_cooldowns
+                        .insert(client, self.config.dash_cooldown);
+                    for (&id, other) in &mut self.senders {
+                        if id != client {
+                            other.send(ServerMessage::Dash(client));
+                        }
+                    }
+                }
+                false
+            }
+        });
+
         if let Some(timer) = &mut self.restart_timer {
             *timer -= delta_time;
             if *timer < 0.0 {

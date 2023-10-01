@@ -4,6 +4,9 @@ side_speed = 7
 tile_size = 4
 raft_size = 2
 restart_timer = 5
+dash_distance = 5
+dash_cooldown = 1
+attack_time = 1
 
 [shark]
 count = 3
