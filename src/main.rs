@@ -69,7 +69,7 @@ pub enum ServerMessage {
     Name(i64, String),
     Damage(vec3<f32>),
     UpdateGullPos { id: i64, pos: Pos },
-    YouCanPoopCongratualtions,
+    YouCanPoopCongratulations,
     FlyingPoop(Pos),
     PoopOnFloor(vec2<f32>),
 }
@@ -335,7 +335,7 @@ impl Game {
                 self.flying_poops.push(pos);
                 self.ctx.assets.sfx.dry_fart.play();
             }
-            ServerMessage::YouCanPoopCongratualtions => {
+            ServerMessage::YouCanPoopCongratulations => {
                 self.can_poop = true;
             }
             ServerMessage::UpdateGullPos { id, pos } => match self.other_gulls.entry(id) {

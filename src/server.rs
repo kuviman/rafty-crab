@@ -280,7 +280,7 @@ impl State {
                 true
             } else {
                 if let Some(sender) = self.senders.get_mut(&client) {
-                    sender.send(ServerMessage::YouCanPoopCongratualtions);
+                    sender.send(ServerMessage::YouCanPoopCongratulations);
                 }
                 false
             }
