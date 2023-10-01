@@ -86,6 +86,7 @@ pub struct Sfx {
 pub struct Assets {
     pub sfx: Sfx,
     pub shaders: Shaders,
+    pub dash: Rc<pog_paint::Model>,
     pub config: Config,
     pub crab: Crab,
     pub shark: pog_paint::Model,

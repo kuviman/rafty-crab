@@ -63,9 +63,9 @@ pub enum ServerMessage {
     DashRestore,
     YouStartAttack(vec2<f32>),
     StartAttack(vec2<f32>, i64),
-    Dash(i64),
+    Dash(i64, Pos),
     YouWasPushed(vec2<f32>),
-    WasPushed(i64),
+    WasPushed(i64, Pos),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -162,12 +162,15 @@ struct Vfx {
 }
 impl Vfx {
     fn new(model: &Rc<pog_paint::Model>, pos: vec3<f32>) -> Vfx {
+        Self::new_rot(model, pos, thread_rng().gen())
+    }
+    fn new_rot(model: &Rc<pog_paint::Model>, pos: vec3<f32>, rot: Angle<f32>) -> Vfx {
         Self {
             model: model.clone(),
             t: 0.0,
             max_t: 0.3,
             pos,
-            rot: thread_rng().gen(),
+            rot,
         }
     }
 }
@@ -263,8 +266,12 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
-            ServerMessage::WasPushed(_id) => {
+            ServerMessage::WasPushed(id, new_pos) => {
                 self.ctx.assets.sfx.bonk.play();
+                if let Some(other) = self.others.get_mut(&id) {
+                    other.pos.server_update(new_pos);
+                    other.pos.update(1.0);
+                }
             }
             ServerMessage::YouWasPushed(delta) => {
                 if let Some(me) = &mut self.me {
@@ -275,9 +282,20 @@ impl Game {
             ServerMessage::StartAttack(_new_pos, id) => {
                 self.attacks.insert(id);
             }
-            ServerMessage::Dash(id) => {
+            ServerMessage::Dash(id, new_pos) => {
                 self.attacks.remove(&id);
-                self.ctx.assets.sfx.dash.play();
+                if let Some(other) = self.others.get_mut(&id) {
+                    let old_pos = other.pos.get().pos;
+                    other.pos.server_update(new_pos);
+                    other.pos.update(1.0);
+                    let new_pos = new_pos.pos;
+                    self.ctx.assets.sfx.dash.play();
+                    self.vfx.push(Vfx::new_rot(
+                        &self.ctx.assets.dash,
+                        new_pos,
+                        (new_pos - old_pos).xy().arg(),
+                    ));
+                }
             }
             ServerMessage::YouStartAttack(_) => {}
             ServerMessage::DashRestore => {
@@ -285,9 +303,15 @@ impl Game {
             }
             ServerMessage::YouDash(new_pos) => {
                 if let Some(me) = &mut self.me {
+                    let old_pos = me.pos;
                     me.pos = new_pos;
                     self.attacking = false;
                     self.ctx.assets.sfx.dash.play();
+                    self.vfx.push(Vfx::new_rot(
+                        &self.ctx.assets.dash,
+                        new_pos,
+                        (new_pos - old_pos).xy().arg(),
+                    ));
                 }
             }
             ServerMessage::JustRestarted => {

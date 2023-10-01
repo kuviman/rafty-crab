@@ -211,7 +211,7 @@ impl State {
             if time > 0.0 {
                 true
             } else {
-                if let Some(pos) = self.player_pos.get(&client) {
+                if let Some(pos) = self.player_pos.get(&client).copied() {
                     let mut dist = self.config.dash_distance;
                     if let Some((id, t)) = self
                         .player_pos
@@ -225,13 +225,15 @@ impl State {
                         if t < dist {
                             dist = t;
                         }
+                        let delta = dir * self.config.push_distance;
                         if let Some(sender) = self.senders.get_mut(&id) {
-                            sender
-                                .send(ServerMessage::YouWasPushed(dir * self.config.push_distance));
+                            sender.send(ServerMessage::YouWasPushed(delta));
                         }
+                        let player_pos = self.player_pos.get_mut(&id).unwrap();
+                        player_pos.pos += delta.extend(0.0);
                         for (&other_id, other) in &mut self.senders {
                             if other_id != id {
-                                other.send(ServerMessage::WasPushed(id));
+                                other.send(ServerMessage::WasPushed(id, *player_pos));
                             }
                         }
                     }
@@ -239,11 +241,15 @@ impl State {
 
                     if let Some(sender) = self.senders.get_mut(&client) {
                         sender.send(ServerMessage::YouDash(new_pos));
+                        self.player_pos.get_mut(&client).unwrap().pos = new_pos;
                         self.dash_cooldowns
                             .insert(client, self.config.dash_cooldown);
                         for (&id, other) in &mut self.senders {
                             if id != client {
-                                other.send(ServerMessage::Dash(client));
+                                other.send(ServerMessage::Dash(
+                                    client,
+                                    *self.player_pos.get(&client).unwrap(),
+                                ));
                             }
                         }
                     }
