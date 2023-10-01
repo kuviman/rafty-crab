@@ -59,17 +59,19 @@ impl State {
         for (&client, sender) in &mut self.senders {
             sender.send(ServerMessage::UpdateRaft(self.raft.clone()));
 
-            let pos = Pos {
-                pos: vec3(
-                    thread_rng().gen_range(-1.0..=1.0),
-                    thread_rng().gen_range(-1.0..=1.0),
-                    0.0,
-                ),
-                rot: Angle::from_degrees(thread_rng().gen_range(0.0..360.0)),
-                vel: vec3::ZERO,
-            };
-            self.player_pos.insert(client, pos);
-            sender.send(ServerMessage::YouSpawn(Spawn { pos }));
+            if self.names.contains_key(&client) {
+                let pos = Pos {
+                    pos: vec3(
+                        thread_rng().gen_range(-1.0..=1.0),
+                        thread_rng().gen_range(-1.0..=1.0),
+                        0.0,
+                    ),
+                    rot: Angle::from_degrees(thread_rng().gen_range(0.0..360.0)),
+                    vel: vec3::ZERO,
+                };
+                self.player_pos.insert(client, pos);
+                sender.send(ServerMessage::YouSpawn(Spawn { pos }));
+            }
             sender.send(ServerMessage::JustRestarted);
         }
 
@@ -253,8 +255,10 @@ impl State {
                             self.wait_for_teleport_ack.insert(id);
                         }
                         let player_pos = self.player_pos.get_mut(&id).unwrap();
+                        let damage_pos = pos.pos + dir.extend(0.0) * (t + 1.0);
                         player_pos.pos += delta.extend(0.0);
                         for (&other_id, other) in &mut self.senders {
+                            other.send(ServerMessage::Damage(damage_pos));
                             if other_id != id {
                                 other.send(ServerMessage::WasPushed(id, *player_pos));
                             }
@@ -284,7 +288,7 @@ impl State {
 
         if let Some(timer) = &mut self.restart_timer {
             *timer -= delta_time;
-            if *timer < 0.0 {
+            if *timer < 0.0 && !self.names.is_empty() {
                 self.restart_timer = None;
                 self.restart();
             }

@@ -94,4 +94,5 @@ pub struct Assets {
     pub splash: Rc<pog_paint::Model>,
     pub destroy: Rc<pog_paint::Model>,
     pub raft_tile: pog_paint::Model,
+    pub damage: Rc<pog_paint::Model>,
 }

@@ -67,6 +67,7 @@ pub enum ServerMessage {
     YouWasPushed(vec2<f32>),
     WasPushed(i64, Pos),
     Name(i64, String),
+    Damage(vec3<f32>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -204,7 +205,6 @@ impl Game {
         ctx: &Ctx,
         con: geng::net::client::Connection<ServerMessage, ClientMessage>,
     ) -> Self {
-        ctx.geng.window().start_text_edit("");
         Self {
             names: default(),
             name: "".to_owned(),
@@ -240,12 +240,18 @@ impl Game {
                 geng::Event::EditText(new_name) => {
                     self.name = new_name;
                 }
-                geng::Event::KeyPress {
-                    key: geng::Key::Enter,
-                } => {
-                    self.naming = false;
-                    self.con.send(ClientMessage::Name(self.name.clone()));
-                    self.ctx.geng.window().stop_text_edit();
+                geng::Event::KeyPress { key } if self.naming => {
+                    if key == geng::Key::Enter {
+                        self.naming = false;
+                        self.con.send(ClientMessage::Name(self.name.clone()));
+                    }
+                    let t = format!("{key:?}");
+                    if t.len() == 1 && self.name.len() < 15 {
+                        self.name.push_str(&t);
+                    }
+                    if key == geng::Key::Backspace {
+                        self.name.pop();
+                    }
                 }
                 geng::Event::MousePress {
                     button: geng::MouseButton::Left,
@@ -286,6 +292,9 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::Damage(pos) => {
+                self.vfx.push(Vfx::new(&self.ctx.assets.damage, pos));
+            }
             ServerMessage::Name(id, name) => {
                 self.names.insert(id, name);
             }
