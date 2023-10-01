@@ -305,14 +305,14 @@ impl State {
 
         if let Some(timer) = &mut self.restart_timer {
             *timer -= delta_time;
-            if *timer < 0.0 && !self.names.is_empty() {
+            if *timer < 0.0 {
                 self.restart_timer = None;
                 self.restart();
             }
-        } else {
-            if self.player_pos.is_empty() {
-                self.restart_timer = Some(self.config.restart_timer);
-            }
+        } else if (self.player_pos.len() <= 1 && self.names.len() >= 2)
+            || (self.names.len() == 1 && self.player_pos.is_empty())
+        {
+            self.restart_timer = Some(self.config.restart_timer);
         }
         for (&shark_id, shark) in &mut self.sharks {
             if let Some(timer) = &mut shark.destroy_timer {
