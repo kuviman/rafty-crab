@@ -168,6 +168,8 @@ impl State {
                 }
             }
             ClientMessage::Name(name) => {
+                let name = name.chars().filter(|c| c.is_ascii_alphabetic()).take(15);
+                let name: String = rustrict::CensorIter::censor(name).collect();
                 for (&id, other) in &mut self.senders {
                     if id != client {
                         other.send(ServerMessage::Name(client, name.clone()));
