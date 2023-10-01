@@ -22,7 +22,7 @@ uniform sampler2D u_texture;
 uniform sampler2D u_mask;
 
 void main() {
-    if (texture2D(u_mask, v_mask_uv).a != 1) {
+    if (texture2D(u_mask, v_mask_uv).a != 1.0) {
         discard;
     }
     gl_FragColor = texture2D(u_texture, v_uv);
