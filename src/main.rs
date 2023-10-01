@@ -458,6 +458,7 @@ impl Game {
             }
             ServerMessage::PlayerLeft { id } => {
                 self.others.remove(&id);
+                self.other_gulls.remove(&id);
             }
             ServerMessage::Pog => {
                 self.con.send(ClientMessage::Pig);
