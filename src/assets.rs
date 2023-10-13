@@ -40,9 +40,16 @@ pub struct SharkConfig {
     pub extra_move_radius: f32,
 }
 
+#[derive(Deserialize)]
+pub struct SpectatorConfig {
+    pub rotate_speed: f32,
+    pub winner_zoom_in_distance: f32,
+}
+
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
+    pub spectator: SpectatorConfig,
     pub music_volume: f64,
     pub slide_speed: f32,
     pub push_distance_rem_k: f32,

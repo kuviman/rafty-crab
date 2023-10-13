@@ -19,6 +19,10 @@ collide_speed = 2
 slide_speed = 8
 music_volume = 0.3
 
+[spectator]
+rotate_speed = 5
+winner_zoom_in_distance = 5
+
 [shark]
 count = 3
 depth = -3

@@ -1,8 +1,10 @@
 use assets::Assets;
 use camera::Camera;
-use geng::prelude::{bincode::de, *};
+use geng::prelude::*;
 use interpolation::Interpolated;
 use model_draw::ModelDraw;
+
+const SPECTATOR_STR: &str = "SPECTATOR";
 
 mod assets;
 mod camera;
@@ -288,7 +290,7 @@ impl Game {
                 }
                 | geng::Event::MousePress {
                     button: geng::MouseButton::Left,
-                } if self.me.is_none() && self.can_poop => {
+                } if self.me.is_none() && self.can_poop && self.name != SPECTATOR_STR => {
                     self.can_poop = false;
                     self.con.send(ClientMessage::Poop);
                 }
@@ -303,7 +305,7 @@ impl Game {
                             let t = -ray.from.z / ray.dir.z;
                             let ground_pos = ray.from + ray.dir * t;
 
-                            if let Some(me) = &self.me {
+                            if let Some(_me) = &self.me {
                                 self.con.send(ClientMessage::Attack(ground_pos));
                                 self.attacking = true;
                                 self.can_dash = false;
@@ -481,7 +483,7 @@ impl Game {
                 self.con.send(ClientMessage::Pig);
                 if let Some(me) = &self.me {
                     self.con.send(ClientMessage::UpdatePos(me.clone()));
-                } else {
+                } else if self.name != SPECTATOR_STR {
                     self.con.send(ClientMessage::UpdateGullPos(self.me_gull));
                 }
             }
@@ -505,7 +507,7 @@ impl Game {
         let delta_time = delta_time.as_secs_f64() as f32;
         self.time += delta_time;
 
-        if let Some(me) = &mut self.me {
+        let target_pos = if let Some(me) = &mut self.me {
             let mut mov = vec2::<f32>::ZERO;
             if self.ctx.geng.window().is_key_pressed(geng::Key::ArrowLeft)
                 || self.ctx.geng.window().is_key_pressed(geng::Key::A)
@@ -576,7 +578,8 @@ impl Game {
                     }
                 }
             }
-        } else {
+            me.pos
+        } else if self.name != SPECTATOR_STR {
             if self.me_gull.pos.xy().len() > self.ctx.assets.config.limit {
                 self.me_gull.rot -=
                     Angle::from_degrees(self.ctx.assets.config.seagull_rotate_speed)
@@ -603,9 +606,32 @@ impl Game {
                 .rotate(self.me_gull.rot)
                 .extend(0.0);
             self.me_gull.pos += self.me_gull.vel * delta_time;
-        }
+            self.me_gull.pos
+        } else {
+            // SPECTATOR MODE
+            let target_distance = if self.others.len() <= 1 {
+                self.ctx.assets.config.spectator.winner_zoom_in_distance
+            } else {
+                self.ctx.assets.config.camera.distance
+            };
+            let delta = target_distance - self.camera.distance;
+            self.camera.distance +=
+                (delta * self.ctx.assets.config.camera.speed * delta_time).clamp_abs(delta.abs());
 
-        let target_pos = self.me.unwrap_or(self.me_gull).pos;
+            self.camera.rot +=
+                Angle::from_degrees(self.ctx.assets.config.spectator.rotate_speed) * delta_time;
+            let (count, sum) = self
+                .others
+                .values()
+                .map(|other| other.pos.get().pos)
+                .fold((0, vec3::ZERO), |(count, sum), p| (count + 1, sum + p));
+            if count == 0 {
+                self.camera.pos
+            } else {
+                sum / count as f32
+            }
+        };
+
         let delta = target_pos - self.camera.pos;
         self.camera.pos +=
             (delta * self.ctx.assets.config.camera.speed * delta_time).clamp_len(..=delta.len());
@@ -699,7 +725,7 @@ impl Game {
                     me.transform() * mat4::translate(vec3(1.0, 0.0, 0.55)),
                 );
             }
-        } else {
+        } else if self.name != SPECTATOR_STR {
             self.draw_gull(framebuffer, self.me_gull);
             if self.can_poop {
                 self.ctx.model_draw.draw(
@@ -854,7 +880,9 @@ impl Game {
                 Rgba::BLACK,
             );
         } else {
-            self.draw_name(framebuffer, &self.name, self.me.unwrap_or(self.me_gull));
+            if self.name != SPECTATOR_STR {
+                self.draw_name(framebuffer, &self.name, self.me.unwrap_or(self.me_gull));
+            }
             for (&id, name) in &self.names {
                 if let Some(other) = self.others.get(&id).or(self.other_gulls.get(&id)) {
                     self.draw_name(framebuffer, name, other.pos.get());

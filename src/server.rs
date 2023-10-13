@@ -62,7 +62,11 @@ impl State {
         for (&client, sender) in &mut self.senders {
             sender.send(ServerMessage::UpdateRaft(self.raft.clone()));
 
-            if self.names.contains_key(&client) {
+            if self
+                .names
+                .get(&client)
+                .map_or(false, |name| name != SPECTATOR_STR)
+            {
                 let pos = Pos {
                     pos: vec3(
                         thread_rng().gen_range(-1.0..=1.0),
@@ -172,10 +176,15 @@ impl State {
                 let name: String = rustrict::CensorIter::censor(name).collect();
                 for (&id, other) in &mut self.senders {
                     if id != client {
-                        other.send(ServerMessage::Name(client, name.clone()));
+                        other.send(if name == SPECTATOR_STR {
+                            ServerMessage::PlayerLeft { id: client }
+                        } else {
+                            ServerMessage::Name(client, name.clone())
+                        });
                     }
                 }
                 self.names.insert(client, name);
+                self.gull_pos.remove(&client);
             }
             ClientMessage::Attack(target) => {
                 if !self.dash_cooldowns.contains_key(&client) {
