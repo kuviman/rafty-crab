@@ -49,6 +49,9 @@ pub struct SpectatorConfig {
 #[derive(Deserialize, geng::asset::Load)]
 #[load(serde = "toml")]
 pub struct Config {
+    pub kill_timer: f64,
+    pub survival_points: Vec<usize>,
+    pub elimination_points: usize,
     pub spectator: SpectatorConfig,
     pub music_volume: f64,
     pub slide_speed: f32,

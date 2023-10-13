@@ -1,6 +1,11 @@
-use geng::net::Server;
-
 use super::*;
+
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
+pub struct Score {
+    pub eliminations: usize,
+    pub wins: usize,
+    pub points: usize,
+}
 
 struct State {
     names: HashMap<Id, String>,
@@ -18,6 +23,8 @@ struct State {
     poop_cooldowns: HashMap<Id, f32>,
     wait_for_teleport_ack: HashSet<Id>,
     flying_poops: Vec<Pos>,
+    scores: HashMap<Id, Score>,
+    last_touch: HashMap<Id, (Id, Timer)>,
 }
 
 fn intersect(from: vec2<f32>, dir: vec2<f32>, center: vec2<f32>, radius: f32) -> Option<f32> {
@@ -59,6 +66,11 @@ impl State {
             .points()
             .filter(|tile| tile.map(|x| x as f32).len() <= self.config.raft_size as f32 + 0.5)
             .collect();
+        for id in self.player_pos.keys().copied() {
+            let score = self.scores.entry(id).or_default();
+            score.points += self.config.survival_points[0];
+            score.wins += 1;
+        }
         for (&client, sender) in &mut self.senders {
             sender.send(ServerMessage::UpdateRaft(self.raft.clone()));
 
@@ -80,6 +92,7 @@ impl State {
                 sender.send(ServerMessage::YouSpawn(Spawn { pos }));
             }
             sender.send(ServerMessage::JustRestarted);
+            sender.send(ServerMessage::Scores(self.scores.clone()));
         }
 
         for (&id, &pos) in &self.player_pos {
@@ -93,6 +106,7 @@ impl State {
     fn new(config: assets::Config) -> Self {
         let mut id_gen = IdGen { last_id: 0 };
         Self {
+            last_touch: default(),
             flying_poops: Vec::new(),
             poop_cooldowns: default(),
             names: default(),
@@ -126,6 +140,7 @@ impl State {
                 .collect(),
             id_gen,
             config,
+            scores: default(),
         }
     }
     pub fn new_player(&mut self, mut sender: Box<dyn geng::net::Sender<ServerMessage>>) -> Id {
@@ -152,6 +167,8 @@ impl State {
         }
         self.gull_pos.remove(&client);
         self.names.remove(&client);
+        self.last_touch.remove(&client);
+        self.scores.remove(&client);
     }
     pub fn handle(&mut self, client: Id, message: ClientMessage) {
         let sender = self.senders.get_mut(&client).unwrap();
@@ -254,6 +271,13 @@ impl State {
         }
         self.flying_poops.retain(|poop| poop.pos.z > 0.0);
 
+        let current_survival_points = self
+            .config
+            .survival_points
+            .get(self.player_pos.len().max(1) - 1)
+            .copied()
+            .unwrap_or(0);
+        let win = self.player_pos.len() <= 1;
         for (client, pos) in self.player_pos.clone() {
             if Aabb2::ZERO
                 .extend_uniform(1)
@@ -266,6 +290,18 @@ impl State {
                 })
             {
                 self.player_pos.remove(&client);
+                if let Some((attacker, timer)) = self.last_touch.remove(&client) {
+                    if timer.elapsed().as_secs_f64() < self.config.kill_timer {
+                        let score = self.scores.entry(attacker).or_default();
+                        score.eliminations += 1;
+                        score.points += self.config.elimination_points;
+                    }
+                }
+                let score = self.scores.entry(client).or_default();
+                score.points += current_survival_points;
+                if win {
+                    score.wins += 1;
+                }
                 if let Some(sender) = self.senders.get_mut(&client) {
                     sender.send(ServerMessage::YouDrown);
                 }
@@ -333,6 +369,7 @@ impl State {
                                 sender.send(ServerMessage::YouWasPushed(delta));
                                 self.wait_for_teleport_ack.insert(id);
                             }
+                            self.last_touch.insert(id, (client, Timer::new()));
                             let player_pos = self.player_pos.get_mut(&id).unwrap();
                             let damage_pos = pos.pos + dir.extend(0.0) * (t + 1.0);
                             player_pos.pos += delta.extend(0.0);

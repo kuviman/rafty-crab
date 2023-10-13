@@ -18,6 +18,9 @@ poop_cooldown = 5
 collide_speed = 2
 slide_speed = 8
 music_volume = 0.3
+kill_timer = 1
+elimination_points = 4
+survival_points = [15, 12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
 
 [spectator]
 rotate_speed = 5

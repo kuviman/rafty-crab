@@ -3,6 +3,7 @@ use camera::Camera;
 use geng::prelude::*;
 use interpolation::Interpolated;
 use model_draw::ModelDraw;
+use server::Score;
 
 const SPECTATOR_STR: &str = "SPECTATOR";
 
@@ -74,6 +75,7 @@ pub enum ServerMessage {
     YouCanPoopCongratulations,
     FlyingPoop(Pos),
     PoopOnFloor(vec2<f32>),
+    Scores(HashMap<Id, Score>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -214,6 +216,7 @@ pub struct Game {
     raft: HashSet<vec2<i32>>,
     sharks: HashMap<Id, InterpolatedShark>,
     vfx: Vec<Vfx>,
+    scores: HashMap<Id, Score>,
 }
 
 impl Game {
@@ -262,6 +265,7 @@ impl Game {
             raft: default(),
             sharks: default(),
             vfx: default(),
+            scores: default(),
         }
     }
     pub async fn run(mut self) {
@@ -333,6 +337,9 @@ impl Game {
 
     fn handle_server(&mut self, message: ServerMessage) {
         match message {
+            ServerMessage::Scores(scores) => {
+                self.scores = scores;
+            }
             ServerMessage::PoopOnFloor(pos) => {
                 self.floor_poop.push(pos);
                 self.ctx.assets.sfx.wet_fart.play();
@@ -888,6 +895,77 @@ impl Game {
                     self.draw_name(framebuffer, name, other.pos.get());
                 }
             }
+        }
+
+        if self.ctx.geng.window().is_key_pressed(geng::Key::Tab) {
+            self.draw_leaderboard(framebuffer);
+        }
+    }
+
+    fn draw_leaderboard(&self, framebuffer: &mut ugli::Framebuffer) {
+        let mut lb: Vec<_> = self
+            .scores
+            .iter()
+            .map(|(id, score)| {
+                let name = self.names.get(id).unwrap_or(&self.name);
+                (name, score)
+            })
+            .collect();
+        lb.sort_by_key(|&(name, score)| (score.points, name));
+        let camera = geng::Camera2d {
+            center: vec2::ZERO,
+            rotation: Angle::ZERO,
+            fov: lb.len().max(10) as f32 + 5.0,
+        };
+
+        let font = self.ctx.geng.default_font();
+
+        let mut y = lb.len() as f32 / 2.0;
+        let mut draw_row = |name: &str, elim: &str, wins: &str, points: &str, color: Rgba<f32>| {
+            font.draw(
+                framebuffer,
+                &camera,
+                name,
+                vec2(geng::TextAlign::LEFT, geng::TextAlign::BOTTOM),
+                mat3::translate(vec2(-5.0, y)),
+                color,
+            );
+            font.draw(
+                framebuffer,
+                &camera,
+                elim,
+                vec2(geng::TextAlign::RIGHT, geng::TextAlign::BOTTOM),
+                mat3::translate(vec2(1.0, y)),
+                color,
+            );
+            font.draw(
+                framebuffer,
+                &camera,
+                wins,
+                vec2(geng::TextAlign::RIGHT, geng::TextAlign::BOTTOM),
+                mat3::translate(vec2(3.0, y)),
+                color,
+            );
+            font.draw(
+                framebuffer,
+                &camera,
+                points,
+                vec2(geng::TextAlign::RIGHT, geng::TextAlign::BOTTOM),
+                mat3::translate(vec2(5.0, y)),
+                color,
+            );
+            y -= 1.0;
+        };
+
+        draw_row("name", "elims", "wins", "pts", Rgba::GRAY);
+        for (name, score) in lb {
+            draw_row(
+                name,
+                &score.eliminations.to_string(),
+                &score.wins.to_string(),
+                &score.points.to_string(),
+                Rgba::BLACK,
+            );
         }
     }
 
