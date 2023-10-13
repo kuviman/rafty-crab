@@ -18,6 +18,7 @@ struct State {
     flying_poops: Vec<Pos>,
     scores: HashMap<Id, Score>,
     last_touch: HashMap<Id, (Id, Timer)>,
+    reset: bool,
 }
 
 fn intersect(from: vec2<f32>, dir: vec2<f32>, center: vec2<f32>, radius: f32) -> Option<f32> {
@@ -85,6 +86,10 @@ impl State {
                 sender.send(ServerMessage::YouSpawn(Spawn { pos }));
             }
             sender.send(ServerMessage::JustRestarted);
+            if self.reset {
+                self.reset = false;
+                self.scores.clear();
+            }
             sender.send(ServerMessage::Scores(self.scores.clone()));
         }
 
@@ -99,6 +104,7 @@ impl State {
     fn new(config: assets::Config) -> Self {
         let mut id_gen = IdGen { last_id: 0 };
         Self {
+            reset: true,
             last_touch: default(),
             flying_poops: Vec::new(),
             poop_cooldowns: default(),
@@ -166,6 +172,10 @@ impl State {
     pub fn handle(&mut self, client: Id, message: ClientMessage) {
         let sender = self.senders.get_mut(&client).unwrap();
         match message {
+            ClientMessage::AdminResetSecretButton => {
+                self.reset = true;
+                self.restart_timer = Some(self.config.restart_timer);
+            }
             ClientMessage::Poop => {
                 if self.poop_cooldowns.contains_key(&client) {
                     return;

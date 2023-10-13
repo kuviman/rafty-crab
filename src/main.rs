@@ -4,7 +4,7 @@ use geng::prelude::*;
 use interpolation::Interpolated;
 use model_draw::ModelDraw;
 
-const SPECTATOR_STR: &str = "SPECTATOR";
+const SPECTATOR_STR: &str = "IAMTHEATEGON";
 
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct Score {
@@ -93,6 +93,7 @@ pub enum ClientMessage {
     Name(String),
     UpdateGullPos(Pos),
     Poop,
+    AdminResetSecretButton,
 }
 
 #[derive(clap::Parser)]
@@ -295,6 +296,11 @@ impl Game {
                         self.name.pop();
                     }
                 }
+
+                geng::Event::KeyPress { key: geng::Key::R } if self.name == SPECTATOR_STR => {
+                    self.con.send(ClientMessage::AdminResetSecretButton);
+                }
+
                 geng::Event::KeyPress {
                     key: geng::Key::Space,
                 }
