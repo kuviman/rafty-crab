@@ -477,6 +477,7 @@ impl Game {
             }
             ServerMessage::YouDrown => {
                 if let Some(me) = self.me.take() {
+                    self.me_gull.pos = me.pos.xy().extend(self.me_gull.pos.z);
                     self.vfx
                         .push(Vfx::new(&self.ctx.assets.splash, me.pos.xy().extend(0.0)));
                     self.ctx.assets.sfx.splash.play();
