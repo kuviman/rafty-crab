@@ -23,7 +23,7 @@ elimination_points = 4
 survival_points = [15, 12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
 
 [spectator]
-rotate_speed = 5
+rotate_speed = 0
 winner_zoom_in_distance = 5
 
 [shark]
