@@ -3067,7 +3067,7 @@ dependencies = [
 [[package]]
 name = "pog-paint"
 version = "0.1.0"
-source = "git+https://github.com/kuviman/PogPaint#e2c0a36472c759e0c10ba759a08eb1cd7d727d25"
+source = "git+https://github.com/kuviman/PogPaint#4bf76f95c4487de607504f5239960ebab2235cc4"
 dependencies = [
  "flate2",
  "geng",

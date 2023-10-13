@@ -671,7 +671,21 @@ impl Game {
         self.flying_poops.retain(|poop| poop.pos.z > 0.0);
     }
 
-    fn draw_crab(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos, attacking: bool) {
+    fn draw_crab(
+        &self,
+        id: Option<Id>,
+        framebuffer: &mut ugli::Framebuffer,
+        pos: Pos,
+        attacking: bool,
+    ) {
+        let name = id.and_then(|id| self.names.get(&id)).unwrap_or(&self.name);
+        let name = name.to_lowercase();
+        let crab = self
+            .ctx
+            .assets
+            .custom
+            .get(&name)
+            .unwrap_or(&self.ctx.assets.crab);
         let winner = self.others.len() + self.me.is_some() as usize == 1;
         let on_poop = self
             .floor_poop
@@ -688,12 +702,9 @@ impl Game {
         } else if winner {
             transform *= mat4::translate(vec3(0.0, 0.0, (self.time * 10.0).sin().abs() * 0.5));
         }
-        self.ctx.model_draw.draw(
-            framebuffer,
-            &self.camera,
-            &self.ctx.assets.crab.body,
-            transform,
-        );
+        self.ctx
+            .model_draw
+            .draw(framebuffer, &self.camera, &crab.body, transform);
         if !on_poop {
             transform *= mat4::rotate_z(Angle::from_degrees(
                 (self.time * self.ctx.assets.config.crab_animation.legs_freq).sin()
@@ -701,12 +712,9 @@ impl Game {
                     * (pos.vel.xy().len() / self.ctx.assets.config.side_speed).min(1.0),
             ));
         }
-        self.ctx.model_draw.draw(
-            framebuffer,
-            &self.camera,
-            &self.ctx.assets.crab.legs,
-            transform,
-        );
+        self.ctx
+            .model_draw
+            .draw(framebuffer, &self.camera, &crab.legs, transform);
     }
 
     fn draw_gull(&self, framebuffer: &mut ugli::Framebuffer, pos: Pos) {
@@ -729,7 +737,7 @@ impl Game {
         );
 
         if let Some(me) = &self.me {
-            self.draw_crab(framebuffer, *me, self.attacking);
+            self.draw_crab(None, framebuffer, *me, self.attacking);
             if self.can_dash {
                 self.ctx.model_draw.draw(
                     framebuffer,
@@ -750,7 +758,12 @@ impl Game {
             }
         }
         for (&id, other) in &self.others {
-            self.draw_crab(framebuffer, other.pos.get(), self.attacks.contains(&id));
+            self.draw_crab(
+                Some(id),
+                framebuffer,
+                other.pos.get(),
+                self.attacks.contains(&id),
+            );
         }
         for (&id, other) in &self.other_gulls {
             if !self.others.contains_key(&id) {

@@ -112,6 +112,8 @@ pub struct Assets {
     pub dash: Rc<pog_paint::Model>,
     pub config: Config,
     pub crab: Crab,
+    #[load(load_with = "load_custom(&manager)")]
+    pub custom: HashMap<String, Crab>,
     pub shark: pog_paint::Model,
     pub splash: Rc<pog_paint::Model>,
     pub destroy: Rc<pog_paint::Model>,
@@ -125,4 +127,18 @@ pub struct Assets {
     pub dash_arrow: pog_paint::Model,
     #[load(ext = "mp3", options(looped = "true"))]
     pub music: geng::Sound,
+}
+
+async fn load_custom(manager: &geng::asset::Manager) -> anyhow::Result<HashMap<String, Crab>> {
+    let custom_dir = run_dir().join("assets").join("custom");
+    let custom_dir = &custom_dir;
+    let list: Vec<String> = file::load_detect(custom_dir.join("list.ron")).await?;
+    stream::iter(list)
+        .then(|name| {
+            manager
+                .load(custom_dir.join(&name))
+                .map_ok(|crab| (name, crab))
+        })
+        .try_collect()
+        .await
 }
