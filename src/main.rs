@@ -3,9 +3,15 @@ use camera::Camera;
 use geng::prelude::*;
 use interpolation::Interpolated;
 use model_draw::ModelDraw;
-use server::Score;
 
 const SPECTATOR_STR: &str = "SPECTATOR";
+
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
+pub struct Score {
+    pub eliminations: usize,
+    pub wins: usize,
+    pub points: usize,
+}
 
 mod assets;
 mod camera;

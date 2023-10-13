@@ -1,12 +1,5 @@
 use super::*;
 
-#[derive(Default, Clone, Serialize, Deserialize, Debug)]
-pub struct Score {
-    pub eliminations: usize,
-    pub wins: usize,
-    pub points: usize,
-}
-
 struct State {
     names: HashMap<Id, String>,
     attacks: HashMap<Id, (vec2<f32>, f32)>,
