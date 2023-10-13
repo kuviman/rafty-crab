@@ -200,6 +200,7 @@ impl Vfx {
 }
 
 pub struct Game {
+    hide_names: bool,
     can_poop: bool,
     floor_poop: Vec<vec2<f32>>,
     flying_poops: Vec<Pos>,
@@ -253,6 +254,7 @@ impl Game {
             },
             attacks: default(),
             attacking: false,
+            hide_names: false,
             can_dash: true,
             shark_attacks: default(),
             con,
@@ -295,6 +297,9 @@ impl Game {
                     if key == geng::Key::Backspace {
                         self.name.pop();
                     }
+                }
+                geng::Event::KeyPress { key: geng::Key::H } => {
+                    self.hide_names = !self.hide_names;
                 }
 
                 geng::Event::KeyPress { key: geng::Key::R } if self.name == SPECTATOR_STR => {
@@ -1021,6 +1026,9 @@ impl Game {
     }
 
     fn draw_name(&self, framebuffer: &mut ugli::Framebuffer<'_>, name: &str, pos: Pos) {
+        if self.hide_names {
+            return;
+        }
         let font = self.ctx.geng.default_font();
         let Some(texture) = font.create_text_sdf(name, geng::TextAlign::CENTER, 32.0) else {
             return;
@@ -1044,7 +1052,7 @@ impl Game {
                 self.camera.uniforms(self.framebuffer_size),
             ),
             ugli::DrawParameters {
-                depth_func: Some(ugli::DepthFunc::LessOrEqual),
+                // depth_func: Some(ugli::DepthFunc::LessOrEqual),
                 blend_mode: Some(ugli::BlendMode::straight_alpha()),
                 ..default()
             },
