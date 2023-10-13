@@ -930,7 +930,7 @@ impl Game {
                 (name, score)
             })
             .collect();
-        lb.sort_by_key(|&(name, score)| (score.points, name));
+        lb.sort_by_key(|&(name, score)| (-(score.points as i32), name));
         let camera = geng::Camera2d {
             center: vec2::ZERO,
             rotation: Angle::ZERO,
